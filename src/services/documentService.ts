@@ -24,10 +24,44 @@ export function formatDateFr(dateStr?: string): string {
   });
 }
 
+/**
+ * Safely loads the logo as a Data URL for jsPDF embedding (works offline and in browser)
+ */
+async function loadLogoDataUrl(customLogo?: string): Promise<string | null> {
+  const src = customLogo || '/otm-door-logo.png';
+  if (src.startsWith('data:image')) {
+    return src;
+  }
+  if (typeof window === 'undefined' || typeof Image === 'undefined') {
+    return null;
+  }
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width || 120;
+        canvas.height = img.height || 120;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+          resolve(canvas.toDataURL('image/png'));
+          return;
+        }
+      } catch {}
+      resolve(null);
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
 export async function generateOrderPdf(
   order: Order,
   items: OrderItem[],
-  company?: CompanyInfo
+  company?: CompanyInfo,
+  isQuote: boolean = false
 ): Promise<void> {
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -42,38 +76,48 @@ export async function generateOrderPdf(
   doc.setFillColor(15, 23, 42); // slate-900
   doc.rect(0, 0, pageWidth, 8, 'F');
 
+  // Try embedding logo
+  const logoData = await loadLogoDataUrl(company?.logo);
+  const textStartX = logoData ? 38 : 14;
+
+  if (logoData) {
+    try {
+      doc.addImage(logoData, 'PNG', 14, 12, 20, 20);
+    } catch {}
+  }
+
   // Company Name
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(22);
   doc.setTextColor(15, 23, 42);
-  doc.text(company?.name || 'OTM DOOR', 14, y);
+  doc.text(company?.name || 'OTM DOOR', textStartX, y);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(100, 116, 139);
   y += 5;
-  doc.text('Fabrication & Vente de Portes d’Intérieur et d’Extérieur (WPC - MDF - PVC)', 14, y);
+  doc.text('Fabrication & Vente de Portes d’Intérieur et d’Extérieur (WPC - MDF - PVC)', textStartX, y);
 
   if (company) {
     y += 4;
     const addressLine = [company.address, company.commune, company.wilaya].filter(Boolean).join(', ');
-    doc.text(addressLine || 'Zone Industrielle', 14, y);
+    doc.text(addressLine || 'Zone Industrielle', textStartX, y);
     y += 4;
     const phoneLine = `Tél: ${company.phone1 || ''} ${company.phone2 ? ' / ' + company.phone2 : ''} - Email: ${company.email || 'contact@otmdoor.com'}`;
-    doc.text(phoneLine, 14, y);
+    doc.text(phoneLine, textStartX, y);
   }
 
   // Right box: Document Title & Number
   doc.setFillColor(241, 245, 249);
   doc.roundedRect(pageWidth - 75, 12, 61, 26, 2, 2, 'F');
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
+  doc.setFontSize(isQuote ? 13 : 14);
   doc.setTextColor(15, 23, 42);
-  doc.text('BON DE COMMANDE', pageWidth - 70, 20);
+  doc.text(isQuote ? 'DEVIS ESTIMATIF' : 'BON DE COMMANDE', pageWidth - 70, 20);
 
   doc.setFontSize(11);
   doc.setTextColor(197, 155, 39); // Bronze gold
-  doc.text(order.orderNumber, pageWidth - 70, 27);
+  doc.text(isQuote ? `DEV-${order.orderNumber}` : order.orderNumber, pageWidth - 70, 27);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
@@ -231,7 +275,16 @@ export async function generateOrderPdf(
   const footerText = company?.footerText || 'OTM DOOR — Portes Haut de Gamme — Document généré localement hors ligne';
   doc.text(footerText, pageWidth / 2, 290, { align: 'center' });
 
-  doc.save(`Bon_Commande_${order.orderNumber}.pdf`);
+  const filename = isQuote ? `Devis_${order.orderNumber}.pdf` : `Bon_Commande_${order.orderNumber}.pdf`;
+  doc.save(filename);
+}
+
+export async function generateQuotePdf(
+  order: Order,
+  items: OrderItem[],
+  company?: CompanyInfo
+): Promise<void> {
+  return generateOrderPdf(order, items, company, true);
 }
 
 export async function generateProductionPdf(
@@ -246,16 +299,25 @@ export async function generateProductionPdf(
   doc.setFillColor(15, 23, 42);
   doc.rect(0, 0, pageWidth, 8, 'F');
 
+  // Try embedding logo
+  const logoData = await loadLogoDataUrl(company?.logo);
+  const textStartX = logoData ? 36 : 14;
+  if (logoData) {
+    try {
+      doc.addImage(logoData, 'PNG', 14, 11, 18, 18);
+    } catch {}
+  }
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(20);
   doc.setTextColor(15, 23, 42);
-  doc.text('BON DE FABRICATION / PRODUCTION', 14, y);
+  doc.text('BON DE FABRICATION / PRODUCTION', textStartX, y);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.setTextColor(197, 155, 39);
   y += 6;
-  doc.text(`N° Ordre : ${prodOrder.productionNumber}  —  Rattaché à la Commande : ${prodOrder.orderNumberSnapshot}`, 14, y);
+  doc.text(`N° Ordre : ${prodOrder.productionNumber}  —  Rattaché à la Commande : ${prodOrder.orderNumberSnapshot}`, textStartX, y);
 
   y += 10;
   // Box Door Specs
@@ -367,16 +429,25 @@ export async function generatePaymentReceiptPdf(
   doc.setFillColor(15, 23, 42);
   doc.rect(0, 0, pageWidth, 6, 'F');
 
+  // Try embedding logo
+  const logoData = await loadLogoDataUrl(company?.logo);
+  const textStartX = logoData ? 32 : 12;
+  if (logoData) {
+    try {
+      doc.addImage(logoData, 'PNG', 12, 10, 16, 16);
+    } catch {}
+  }
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(15, 23, 42);
-  doc.text(company?.name || 'OTM DOOR', 12, y);
+  doc.text(company?.name || 'OTM DOOR', textStartX, y);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(100, 116, 139);
   y += 4;
-  doc.text('REÇU DE PAIEMENT & ENCAISSEMENT', 12, y);
+  doc.text('REÇU DE PAIEMENT & ENCAISSEMENT', textStartX, y);
 
   // Receipt details box
   y += 8;
@@ -439,15 +510,24 @@ export async function generateStockReportPdf(
   const pageWidth = doc.internal.pageSize.getWidth();
   let y = 16;
 
+  // Try embedding logo
+  const logoData = await loadLogoDataUrl(company?.logo);
+  const textStartX = logoData ? 36 : 14;
+  if (logoData) {
+    try {
+      doc.addImage(logoData, 'PNG', 14, 10, 18, 18);
+    } catch {}
+  }
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
   doc.setTextColor(15, 23, 42);
-  doc.text('OTM DOOR — ÉTAT D’INVENTAIRE ET STOCK ACTUEL', 14, y);
+  doc.text('OTM DOOR — ÉTAT D’INVENTAIRE ET STOCK ACTUEL', textStartX, y);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(100, 116, 139);
-  doc.text(`Généré le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR')}`, 14, y + 5);
+  doc.text(`Généré le ${new Date().toLocaleDateString('fr-FR')} à ${new Date().toLocaleTimeString('fr-FR')}`, textStartX, y + 5);
 
   y += 12;
   const startX = 14;

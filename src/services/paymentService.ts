@@ -1,6 +1,7 @@
 import { db, recordAudit, getSettings } from '../db';
 import type { Payment, PaymentMethod } from '../types';
 import { recalculateOrderTotals } from './orderService';
+import { generateSafeSequence } from './sequenceService';
 
 export interface CreatePaymentInput {
   orderId: string;
@@ -12,19 +13,7 @@ export interface CreatePaymentInput {
 }
 
 export async function generateNextReceiptNumber(): Promise<string> {
-  const settings = await getSettings();
-  const prefix = settings?.receiptPrefix || 'REC-2026-';
-  const nextNum = settings?.nextReceiptNum || 1;
-  const numStr = String(nextNum).padStart(4, '0');
-
-  if (settings) {
-    await db.settings.update(settings.id!, {
-      nextReceiptNum: nextNum + 1,
-      updatedAt: new Date().toISOString()
-    });
-  }
-
-  return `${prefix}${numStr}`;
+  return await generateSafeSequence('RECEIPT');
 }
 
 export async function createPayment(input: CreatePaymentInput): Promise<Payment> {

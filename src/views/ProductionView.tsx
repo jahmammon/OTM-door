@@ -6,6 +6,7 @@ import {
   FileText,
   Layers,
   AlertCircle,
+  AlertTriangle,
   Play,
   Check,
   Search,
@@ -23,7 +24,7 @@ import type {
   Frame,
   ComponentItem
 } from '../types';
-import { validateAndExecuteProduction } from '../services/productionService';
+import { validateAndExecuteProduction, checkProductionMaterials } from '../services/productionService';
 import { generateProductionPdf, formatDateFr } from '../services/documentService';
 
 interface ProductionViewProps {
@@ -89,7 +90,7 @@ export const ProductionView: React.FC<ProductionViewProps> = ({ subSection = 'TO
     }
 
     try {
-      await validateAndExecuteProduction(prodOrder.id, undefined, true);
+      await validateAndExecuteProduction(prodOrder.id);
       alert(`Production validée avec succès ! ${prodOrder.quantity} porte(s) ajoutée(s) au stock fini.`);
       await loadData();
     } catch (err: any) {
@@ -144,10 +145,36 @@ export const ProductionView: React.FC<ProductionViewProps> = ({ subSection = 'TO
   // Filter orders by tab
   const filteredOrders = productionOrders.filter((p) => {
     if (activeTab === 'TO_PRODUCE') return p.status === 'À PRODUIRE';
+    if (activeTab === 'AWAITING_MATERIALS') return p.status === 'EN ATTENTE DE MATIÈRES';
     if (activeTab === 'IN_PROGRESS') return p.status === 'EN PRODUCTION';
     if (activeTab === 'COMPLETED') return p.status === 'TERMINÉE';
     return true;
   });
+
+  const handleCheckMaterials = async (order: ProductionOrder) => {
+    try {
+      const check = await checkProductionMaterials(order);
+      if (check.canProduce) {
+        await db.productionOrders.update(order.id, {
+          status: 'À PRODUIRE',
+          notes: 'Matières disponibles en stock',
+          updatedAt: new Date().toISOString()
+        });
+        alert(`Matières premières et composants disponibles en stock ! L'ordre ${order.productionNumber} est passé au statut "À PRODUIRE".`);
+        await loadData();
+      } else {
+        const missingSummary = check.missingItems.map(m => `${m.name} (besoin: ${m.needed} ${m.unit}, dispo: ${m.available} ${m.unit})`).join(' ; ');
+        await db.productionOrders.update(order.id, {
+          notes: `En attente de matières : ${missingSummary}`,
+          updatedAt: new Date().toISOString()
+        });
+        alert(`Matières insuffisantes pour l'ordre ${order.productionNumber} :\n\n${check.missingItems.map(m => `• ${m.name} (Manquant: ${Math.max(0, m.needed - m.available)} ${m.unit})`).join('\n')}`);
+        await loadData();
+      }
+    } catch (err: any) {
+      alert(`Erreur vérification: ${err.message}`);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -162,6 +189,15 @@ export const ProductionView: React.FC<ProductionViewProps> = ({ subSection = 'TO
           >
             <Clock className="w-3.5 h-3.5" />
             <span>À Produire ({productionOrders.filter((p) => p.status === 'À PRODUIRE').length})</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('AWAITING_MATERIALS')}
+            className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'AWAITING_MATERIALS' ? 'bg-rose-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <AlertTriangle className="w-3.5 h-3.5" />
+            <span>En attente de matières ({productionOrders.filter((p) => p.status === 'EN ATTENTE DE MATIÈRES').length})</span>
           </button>
           <button
             onClick={() => setActiveTab('IN_PROGRESS')}
@@ -231,7 +267,9 @@ export const ProductionView: React.FC<ProductionViewProps> = ({ subSection = 'TO
                         </p>
                       </div>
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        order.status === 'À PRODUIRE'
+                        order.status === 'EN ATTENTE DE MATIÈRES'
+                          ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                          : order.status === 'À PRODUIRE'
                           ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
                           : order.status === 'EN PRODUCTION'
                           ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
@@ -240,6 +278,35 @@ export const ProductionView: React.FC<ProductionViewProps> = ({ subSection = 'TO
                         {order.status}
                       </span>
                     </div>
+
+                    {/* BOM missing warning banner */}
+                    {!order.bomSnapshot && !boms.some((b) => b.active && b.modelId === order.modelId) && (
+                      <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
+                        <span>Nomenclature manquante — veuillez configurer le BOM avant de lancer la fabrication.</span>
+                      </div>
+                    )}
+
+                    {/* Awaiting materials alert box */}
+                    {order.status === 'EN ATTENTE DE MATIÈRES' && (
+                      <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2 font-semibold">
+                            <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                            <span>Matières ou composants insuffisants</span>
+                          </div>
+                          <button
+                            onClick={() => handleCheckMaterials(order)}
+                            className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-[11px] font-bold border border-rose-500/30 transition cursor-pointer"
+                          >
+                            Re-vérifier stock
+                          </button>
+                        </div>
+                        {order.notes && (
+                          <p className="text-[11px] text-rose-200/80 pl-6">{order.notes}</p>
+                        )}
+                      </div>
+                    )}
 
                     {/* Door Specs */}
                     <div className="flex gap-4">

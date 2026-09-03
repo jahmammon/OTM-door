@@ -119,15 +119,31 @@ export async function adjustStockItemQuantity(
   const newPhysical = item.physicalQuantity + quantityChange;
   if (newPhysical < 0) {
     throw new Error(
-      `Stock insuffisant pour l'article ${getArticleDisplayName(item)}. Stock actuel: ${item.physicalQuantity}, demandé: ${Math.abs(quantityChange)}`
+      `Opération de stock rejetée : Stock physique insuffisant pour l'article ${getArticleDisplayName(item)}. Stock actuel : ${item.physicalQuantity}, retrait demandé : ${Math.abs(quantityChange)}`
     );
   }
 
-  const newAvailable = newPhysical - item.reservedQuantity;
+  // Reject reducing physical stock below reserved quantity
+  if (newPhysical < item.reservedQuantity) {
+    throw new Error(
+      `Opération de stock rejetée : Le nouveau stock physique (${newPhysical}) ne peut pas être inférieur à la quantité réservée (${item.reservedQuantity}) pour ${getArticleDisplayName(item)}.`
+    );
+  }
+
+  const newReserved = item.reservedQuantity;
+  const newAvailable = newPhysical - newReserved;
+
+  if (newPhysical < 0 || newReserved < 0 || newReserved > newPhysical || newAvailable < 0) {
+    throw new Error(
+      `Opération de stock rejetée : Violation des invariants d'inventaire (Physique: ${newPhysical}, Réservé: ${newReserved}, Disponible: ${newAvailable}).`
+    );
+  }
+
   const now = new Date().toISOString();
 
   await db.stockItems.update(stockItemId, {
     physicalQuantity: newPhysical,
+    reservedQuantity: newReserved,
     availableQuantity: newAvailable,
     updatedAt: now
   });
@@ -150,13 +166,14 @@ export async function adjustStockItemQuantity(
   await recordAudit(
     'Ajustement stock',
     'stockItems',
-    `Stock ${direction === 'IN' ? '+' : '-'}${Math.abs(quantityChange)} ${item.unit} pour ${articleName}. Nouveau stock: ${newPhysical}`,
+    `Stock ${direction === 'IN' ? '+' : '-'}${Math.abs(quantityChange)} ${item.unit} pour ${articleName}. Nouveau stock: ${newPhysical} (Dispo: ${newAvailable})`,
     stockItemId
   );
 
   return {
     ...item,
     physicalQuantity: newPhysical,
+    reservedQuantity: newReserved,
     availableQuantity: newAvailable,
     updatedAt: now
   };
@@ -167,40 +184,53 @@ export async function reserveFinishedDoorStock(
   quantityToReserve: number,
   linkedDocument: string
 ): Promise<{ reserved: number; availableLeft: number }> {
+  if (quantityToReserve <= 0) {
+    return { reserved: 0, availableLeft: 0 };
+  }
+
   const item = await db.stockItems.get(stockItemId);
   if (!item) {
     throw new Error('Article introuvable');
   }
 
-  const available = Math.max(0, item.physicalQuantity - item.reservedQuantity);
-  const actualToReserve = Math.min(available, quantityToReserve);
-
-  if (actualToReserve > 0) {
-    const newReserved = item.reservedQuantity + actualToReserve;
-    const newAvailable = item.physicalQuantity - newReserved;
-    const now = new Date().toISOString();
-
-    await db.stockItems.update(stockItemId, {
-      reservedQuantity: newReserved,
-      availableQuantity: newAvailable,
-      updatedAt: now
-    });
-
-    await recordStockMovement({
-      itemType: item.itemType,
-      stockItemId,
-      articleSnapshot: getArticleDisplayName(item),
-      quantity: actualToReserve,
-      direction: 'RESERVATION',
-      type: 'RÉSERVATION',
-      linkedDocument,
-      motif: `Réservation pour commande ${linkedDocument}`
-    });
+  const currentAvailable = item.physicalQuantity - item.reservedQuantity;
+  if (quantityToReserve > currentAvailable) {
+    throw new Error(
+      `Réservation rejetée : Impossible de réserver ${quantityToReserve} porte(s) pour ${getArticleDisplayName(item)}. Seulement ${currentAvailable} unité(s) disponible(s) (Physique : ${item.physicalQuantity}, Réservé : ${item.reservedQuantity}).`
+    );
   }
 
+  const newReserved = item.reservedQuantity + quantityToReserve;
+  const newAvailable = item.physicalQuantity - newReserved;
+
+  if (newReserved > item.physicalQuantity || newAvailable < 0 || newReserved < 0) {
+    throw new Error(
+      `Réservation rejetée : Violation des invariants de stock pour ${getArticleDisplayName(item)}.`
+    );
+  }
+
+  const now = new Date().toISOString();
+
+  await db.stockItems.update(stockItemId, {
+    reservedQuantity: newReserved,
+    availableQuantity: newAvailable,
+    updatedAt: now
+  });
+
+  await recordStockMovement({
+    itemType: item.itemType,
+    stockItemId,
+    articleSnapshot: getArticleDisplayName(item),
+    quantity: quantityToReserve,
+    direction: 'RESERVATION',
+    type: 'RÉSERVATION',
+    linkedDocument,
+    motif: `Réservation ferme pour commande ${linkedDocument}`
+  });
+
   return {
-    reserved: actualToReserve,
-    availableLeft: Math.max(0, available - actualToReserve)
+    reserved: quantityToReserve,
+    availableLeft: newAvailable
   };
 }
 
@@ -209,32 +239,60 @@ export async function releaseFinishedDoorReservation(
   quantityToRelease: number,
   linkedDocument: string
 ): Promise<void> {
+  if (quantityToRelease <= 0) return;
+
   const item = await db.stockItems.get(stockItemId);
   if (!item) return;
 
-  const actualRelease = Math.min(item.reservedQuantity, quantityToRelease);
-  if (actualRelease > 0) {
-    const newReserved = item.reservedQuantity - actualRelease;
-    const newAvailable = item.physicalQuantity - newReserved;
-    const now = new Date().toISOString();
-
-    await db.stockItems.update(stockItemId, {
-      reservedQuantity: newReserved,
-      availableQuantity: newAvailable,
-      updatedAt: now
-    });
-
-    await recordStockMovement({
-      itemType: item.itemType,
-      stockItemId,
-      articleSnapshot: getArticleDisplayName(item),
-      quantity: actualRelease,
-      direction: 'RELEASE',
-      type: 'ANNULATION_RÉSERVATION',
-      linkedDocument,
-      motif: `Annulation réservation (${linkedDocument})`
-    });
+  if (quantityToRelease > item.reservedQuantity) {
+    throw new Error(
+      `Libération rejetée : Impossible de libérer ${quantityToRelease} unité(s) pour ${getArticleDisplayName(item)} : seulement ${item.reservedQuantity} unité(s) sont réservées.`
+    );
   }
+
+  const newReserved = item.reservedQuantity - quantityToRelease;
+  const newAvailable = item.physicalQuantity - newReserved;
+
+  if (newReserved < 0 || newReserved > item.physicalQuantity || newAvailable < 0) {
+    throw new Error(
+      `Libération rejetée : Violation des invariants de stock pour ${getArticleDisplayName(item)}.`
+    );
+  }
+
+  const now = new Date().toISOString();
+
+  await db.stockItems.update(stockItemId, {
+    reservedQuantity: newReserved,
+    availableQuantity: newAvailable,
+    updatedAt: now
+  });
+
+  await recordStockMovement({
+    itemType: item.itemType,
+    stockItemId,
+    articleSnapshot: getArticleDisplayName(item),
+    quantity: quantityToRelease,
+    direction: 'RELEASE',
+    type: 'ANNULATION_RÉSERVATION',
+    linkedDocument,
+    motif: `Annulation réservation (${linkedDocument})`
+  });
+}
+
+export function validateStockInvariants(item: StockItem): boolean {
+  if (item.physicalQuantity < 0) {
+    throw new Error(`Violation d'invariant de stock : physicalQuantity (${item.physicalQuantity}) ne peut pas être négative.`);
+  }
+  if (item.reservedQuantity < 0) {
+    throw new Error(`Violation d'invariant de stock : reservedQuantity (${item.reservedQuantity}) ne peut pas être négative.`);
+  }
+  if (item.reservedQuantity > item.physicalQuantity) {
+    throw new Error(`Violation d'invariant de stock : reservedQuantity (${item.reservedQuantity}) ne peut pas être supérieure à physicalQuantity (${item.physicalQuantity}).`);
+  }
+  if (item.availableQuantity !== item.physicalQuantity - item.reservedQuantity) {
+    throw new Error(`Violation d'invariant de stock : availableQuantity (${item.availableQuantity}) doit être égale à physicalQuantity (${item.physicalQuantity}) - reservedQuantity (${item.reservedQuantity}).`);
+  }
+  return true;
 }
 
 export function getArticleDisplayName(item: StockItem): string {

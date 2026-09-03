@@ -9,6 +9,7 @@ export type OrderStatus =
 
 export type ProductionStatus = 
   | 'À PRODUIRE'
+  | 'EN ATTENTE DE MATIÈRES'
   | 'EN PRODUCTION'
   | 'TERMINÉE'
   | 'ANNULÉE';
@@ -128,7 +129,8 @@ export interface ComponentItem {
   name: string; // Charnière inox 304, Serrure magnétique, Poignée bronze, etc.
   category: string; // Charnières, Serrure, Poignée, Visserie, Joint, etc.
   unit: string; // Pièce, Sachet, Mètre
-  stock: number;
+  /** @deprecated Non-autoritaire / conservé pour compatibilité legacy. La source de vérité d'inventaire unique est StockItem (db.stockItems). */
+  stock?: number;
   minStock: number;
   price?: number; // DA
   description?: string;

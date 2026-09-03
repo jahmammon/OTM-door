@@ -29,10 +29,10 @@ import type {
   ProductionOrder,
   OrderStatus
 } from '../types';
-import { createOrder, cancelOrder, recalculateOrderTotals } from '../services/orderService';
+import { createOrder, cancelOrder, updateOrderStatus, recalculateOrderTotals } from '../services/orderService';
 import { lookupPrice } from '../services/pricingService';
 import { createPayment } from '../services/paymentService';
-import { generateOrderPdf, generatePaymentReceiptPdf, formatCurrency, formatDateFr } from '../services/documentService';
+import { generateOrderPdf, generateQuotePdf, generatePaymentReceiptPdf, formatCurrency, formatDateFr } from '../services/documentService';
 
 interface OrdersViewProps {
   subSection?: string;
@@ -321,14 +321,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({ subSection = 'ALL' }) =>
   // Status transitions
   const handleUpdateOrderStatus = async (newStatus: OrderStatus) => {
     if (!selectedOrder) return;
-    await db.orders.update(selectedOrder.id, {
-      status: newStatus,
-      updatedAt: new Date().toISOString()
-    });
-    await recordAudit('Changement statut commande', 'orders', `Commande ${selectedOrder.orderNumber} passée à ${newStatus}`, selectedOrder.id);
-    const updated = await db.orders.get(selectedOrder.id);
-    if (updated) setSelectedOrder(updated);
-    await loadData();
+    try {
+      await updateOrderStatus(selectedOrder.id, newStatus);
+      const updated = await db.orders.get(selectedOrder.id);
+      if (updated) setSelectedOrder(updated);
+      await loadData();
+    } catch (err: any) {
+      alert(err.message || 'Erreur lors du changement de statut de la commande.');
+    }
   };
 
   // Cancel order
@@ -902,6 +902,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({ subSection = 'ALL' }) =>
               </button>
 
               <button
+                onClick={() => generateQuotePdf(selectedOrder, selectedOrderItems)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold text-slate-200 hover:bg-slate-700 hover:text-white cursor-pointer shadow-sm"
+              >
+                <FileText className="w-3.5 h-3.5 text-sky-400" />
+                <span>Imprimer Devis Estimatif (PDF)</span>
+              </button>
+
+              <button
                 onClick={() => {
                   setPayAmount(selectedOrder.remainingAmount);
                   setShowPaymentModal(true);
@@ -995,7 +1003,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({ subSection = 'ALL' }) =>
                       <span className="font-bold text-slate-200">
                         {item.quantity} unité(s) x {formatCurrency(item.unitPrice)}
                       </span>
-                      <p className="text-amber-400 font-bold">{formatCurrency(item.totalPrice)}</p>
+                      <p className="text-amber-400 font-bold">{formatCurrency(item.totalLine ?? (item.quantity * item.unitPrice))}</p>
                     </div>
                   </div>
                 ))}

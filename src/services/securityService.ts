@@ -1,3 +1,5 @@
+import { db, getSettings } from '../db';
+
 // Web Crypto API security service for password hashing and backup encryption/decryption
 
 export async function hashPassword(password: string, existingSalt?: string): Promise<{ hash: string; salt: string }> {
@@ -34,6 +36,93 @@ export async function hashPassword(password: string, existingSalt?: string): Pro
 export async function verifyPassword(password: string, hash: string, salt: string): Promise<boolean> {
   const result = await hashPassword(password, salt);
   return result.hash === hash;
+}
+
+export async function initializeSecurityPassword(password: string): Promise<void> {
+  const { hash, salt } = await hashPassword(password);
+  const settings = await getSettings();
+  if (settings) {
+    await db.settings.update(settings.id!, {
+      passwordHash: hash,
+      passwordSalt: salt,
+      updatedAt: new Date().toISOString()
+    });
+  } else {
+    await db.settings.put({
+      id: 'sett_default',
+      currency: 'DA',
+      isInitialized: true,
+      passwordHash: hash,
+      passwordSalt: salt,
+      autoLockMinutes: 15,
+      orderPrefix: 'OTM-2026-',
+      receiptPrefix: 'REC-2026-',
+      productionPrefix: 'PROD-2026-',
+      nextOrderNum: 1,
+      nextReceiptNum: 1,
+      nextProductionNum: 1,
+      updatedAt: new Date().toISOString()
+    });
+  }
+}
+
+export async function verifySecurityPassword(password: string): Promise<boolean> {
+  const settings = await getSettings();
+  if (!settings?.passwordHash || !settings?.passwordSalt) return true;
+  return await verifyPassword(password, settings.passwordHash, settings.passwordSalt);
+}
+
+let memorySessionStorage: Record<string, string> = {};
+
+function getSessionItem(key: string): string | null {
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      return sessionStorage.getItem(key);
+    } catch {
+      return memorySessionStorage[key] || null;
+    }
+  }
+  return memorySessionStorage[key] || null;
+}
+
+function setSessionItem(key: string, value: string): void {
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      sessionStorage.setItem(key, value);
+      return;
+    } catch {
+      memorySessionStorage[key] = value;
+    }
+  }
+  memorySessionStorage[key] = value;
+}
+
+function removeSessionItem(key: string): void {
+  if (typeof sessionStorage !== 'undefined') {
+    try {
+      sessionStorage.removeItem(key);
+      return;
+    } catch {
+      delete memorySessionStorage[key];
+    }
+  }
+  delete memorySessionStorage[key];
+}
+
+export function lockApplicationSession(): void {
+  removeSessionItem('otm_unlocked');
+}
+
+export async function unlockApplicationSession(password: string): Promise<boolean> {
+  const isValid = await verifySecurityPassword(password);
+  if (isValid) {
+    setSessionItem('otm_unlocked', 'true');
+  }
+  return isValid;
+}
+
+export function isSessionUnlocked(): boolean {
+  return getSessionItem('otm_unlocked') === 'true';
 }
 
 export async function encryptData(plainText: string, password: string): Promise<string> {

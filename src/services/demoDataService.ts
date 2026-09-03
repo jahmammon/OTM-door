@@ -328,8 +328,26 @@ export async function loadDemoData(): Promise<{ success: boolean; message: strin
     }
   ];
 
-  // BOM
+  // BOMs - Ensure valid BOMs for ALL seed door models (P-001, P-012, P-024, P-031)
   const demoBoms: BillOfMaterials[] = [
+    {
+      id: 'bom_p001_standard',
+      name: 'BOM Standard P-001 (Lignes Géométriques)',
+      modelId: 'mod_p001',
+      materialName: 'WPC',
+      items: [
+        { componentId: 'cmp_charniere', componentName: 'Charnière Inox 304 4 pouces', quantity: 3, unit: 'pièce' },
+        { componentId: 'cmp_serrure', componentName: 'Serrure Magnétique Silencieuse', quantity: 1, unit: 'pièce' },
+        { componentId: 'cmp_poignee', componentName: 'Poignée Aluminium Design Bronze', quantity: 1, unit: 'pièce' },
+        { componentId: 'cmp_visserie', componentName: 'Kit Visserie & Fixation Dormant', quantity: 1, unit: 'sachet' },
+        { componentId: 'cmp_joint', componentName: 'Joint Acoustique Isophonique EPDM', quantity: 5, unit: 'mètre' }
+      ],
+      rawMaterialUnitsNeeded: 1,
+      notes: 'Nomenclature standard pour modèle P-001 rainuré',
+      active: true,
+      createdAt: now,
+      updatedAt: now
+    },
     {
       id: 'bom_p012_wpc_f2',
       name: 'BOM Standard P-012 WPC Cadre F2',
@@ -344,23 +362,61 @@ export async function loadDemoData(): Promise<{ success: boolean; message: strin
         { componentId: 'cmp_joint', componentName: 'Joint Acoustique Isophonique EPDM', quantity: 5, unit: 'mètre' }
       ],
       rawMaterialUnitsNeeded: 1,
-      notes: 'Nomenclature standard usine pour modèle P-012 WPC avec Cadre F2 (consomme 1 panneau + 1 cadre + quincaillerie)',
+      notes: 'Nomenclature standard usine pour modèle P-012 WPC avec Cadre F2',
       active: true,
       createdAt: now,
       updatedAt: now
     },
     {
-      id: 'bom_generic_wpc',
-      name: 'BOM Générique Portes WPC',
+      id: 'bom_p012_standard',
+      name: 'BOM Standard P-012 (Double Moulure)',
+      modelId: 'mod_p012',
       materialName: 'WPC',
       items: [
         { componentId: 'cmp_charniere', componentName: 'Charnière Inox 304 4 pouces', quantity: 3, unit: 'pièce' },
         { componentId: 'cmp_serrure', componentName: 'Serrure Magnétique Silencieuse', quantity: 1, unit: 'pièce' },
         { componentId: 'cmp_poignee', componentName: 'Poignée Aluminium Design Bronze', quantity: 1, unit: 'pièce' },
-        { componentId: 'cmp_visserie', componentName: 'Kit Visserie & Fixation Dormant', quantity: 1, unit: 'sachet' }
+        { componentId: 'cmp_visserie', componentName: 'Kit Visserie & Fixation Dormant', quantity: 1, unit: 'sachet' },
+        { componentId: 'cmp_joint', componentName: 'Joint Acoustique Isophonique EPDM', quantity: 5, unit: 'mètre' }
       ],
       rawMaterialUnitsNeeded: 1,
-      notes: 'BOM de repli pour portes WPC',
+      notes: 'Nomenclature modèle P-012 tous cadres',
+      active: true,
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: 'bom_p024_standard',
+      name: 'BOM Standard P-024 (Insert Inox Brossé)',
+      modelId: 'mod_p024',
+      materialName: 'WPC',
+      items: [
+        { componentId: 'cmp_charniere', componentName: 'Charnière Inox 304 4 pouces', quantity: 3, unit: 'pièce' },
+        { componentId: 'cmp_serrure', componentName: 'Serrure Magnétique Silencieuse', quantity: 1, unit: 'pièce' },
+        { componentId: 'cmp_poignee', componentName: 'Poignée Aluminium Design Bronze', quantity: 1, unit: 'pièce' },
+        { componentId: 'cmp_visserie', componentName: 'Kit Visserie & Fixation Dormant', quantity: 1, unit: 'sachet' },
+        { componentId: 'cmp_joint', componentName: 'Joint Acoustique Isophonique EPDM', quantity: 5, unit: 'mètre' }
+      ],
+      rawMaterialUnitsNeeded: 1,
+      notes: 'Nomenclature modèle P-024 avec insert inox',
+      active: true,
+      createdAt: now,
+      updatedAt: now
+    },
+    {
+      id: 'bom_p031_standard',
+      name: 'BOM Standard P-031 (Minimaliste Plein Zen)',
+      modelId: 'mod_p031',
+      materialName: 'WPC',
+      items: [
+        { componentId: 'cmp_charniere', componentName: 'Charnière Inox 304 4 pouces', quantity: 3, unit: 'pièce' },
+        { componentId: 'cmp_serrure', componentName: 'Serrure Magnétique Silencieuse', quantity: 1, unit: 'pièce' },
+        { componentId: 'cmp_poignee', componentName: 'Poignée Aluminium Design Bronze', quantity: 1, unit: 'pièce' },
+        { componentId: 'cmp_visserie', componentName: 'Kit Visserie & Fixation Dormant', quantity: 1, unit: 'sachet' },
+        { componentId: 'cmp_joint', componentName: 'Joint Acoustique Isophonique EPDM', quantity: 5, unit: 'mètre' }
+      ],
+      rawMaterialUnitsNeeded: 1,
+      notes: 'Nomenclature modèle P-031 panneau plein',
       active: true,
       createdAt: now,
       updatedAt: now
@@ -638,6 +694,7 @@ export async function checkIfFirstRun(): Promise<boolean> {
 }
 
 export async function seedInitialData(force: boolean = false): Promise<void> {
+  await initializeCleanSetup();
   await loadDemoData();
 }
 

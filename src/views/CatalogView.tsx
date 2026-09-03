@@ -19,7 +19,8 @@ import type {
   Colour,
   Frame,
   Material,
-  ComponentItem
+  ComponentItem,
+  StockItem
 } from '../types';
 import { formatCurrency } from '../services/documentService';
 
@@ -34,6 +35,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ subSection = 'MODELES'
   const [frames, setFrames] = useState<Frame[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [components, setComponents] = useState<ComponentItem[]>([]);
+  const [stockItems, setStockItems] = useState<StockItem[]>([]);
   const [search, setSearch] = useState('');
 
   // Modals
@@ -47,18 +49,20 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ subSection = 'MODELES'
   const [editingFrame, setEditingFrame] = useState<Partial<Frame> | null>(null);
 
   const loadData = async () => {
-    const [allModels, allColours, allFrames, allMats, allComps] = await Promise.all([
+    const [allModels, allColours, allFrames, allMats, allComps, allStocks] = await Promise.all([
       db.doorModels.toArray(),
       db.colours.toArray(),
       db.frames.toArray(),
       db.materials.toArray(),
-      db.components.toArray()
+      db.components.toArray(),
+      db.stockItems.toArray()
     ]);
     setDoorModels(allModels);
     setColours(allColours);
     setFrames(allFrames);
     setMaterials(allMats);
     setComponents(allComps);
+    setStockItems(allStocks);
   };
 
   useEffect(() => {
@@ -412,22 +416,37 @@ export const CatalogView: React.FC<CatalogViewProps> = ({ subSection = 'MODELES'
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {components.map((comp) => (
-                <tr key={comp.id} className="hover:bg-slate-800/30 transition">
-                  <td className="py-3 px-4 font-mono text-amber-400">{comp.ref}</td>
-                  <td className="py-3 px-4 font-bold text-white">{comp.name}</td>
-                  <td className="py-3 px-4 text-slate-400">{comp.category}</td>
-                  <td className="py-3 px-4 text-center font-bold text-slate-200">
-                    {comp.stock} {comp.unit}
-                  </td>
-                  <td className="py-3 px-4 text-center text-slate-400">
-                    {comp.minStock} {comp.unit}
-                  </td>
-                  <td className="py-3 px-4 text-right font-semibold text-slate-200">
-                    {formatCurrency(comp.price)}
-                  </td>
-                </tr>
-              ))}
+              {components.map((comp) => {
+                const linkedStock = stockItems.find(
+                  (s) => s.itemType === 'COMPONENT' && s.componentId === comp.id
+                );
+                const available = linkedStock !== undefined ? linkedStock.availableQuantity : comp.stock;
+                const physical = linkedStock !== undefined ? linkedStock.physicalQuantity : comp.stock;
+
+                return (
+                  <tr key={comp.id} className="hover:bg-slate-800/30 transition">
+                    <td className="py-3 px-4 font-mono text-amber-400">{comp.ref}</td>
+                    <td className="py-3 px-4 font-bold text-white">{comp.name}</td>
+                    <td className="py-3 px-4 text-slate-400">{comp.category}</td>
+                    <td className="py-3 px-4 text-center font-bold text-slate-200">
+                      <span className={available <= comp.minStock ? 'text-amber-400' : 'text-slate-100'}>
+                        {available} {comp.unit}
+                      </span>
+                      {physical !== available && (
+                        <span className="block text-[10px] text-slate-400 font-normal">
+                          (physique: {physical})
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-center text-slate-400">
+                      {comp.minStock} {comp.unit}
+                    </td>
+                    <td className="py-3 px-4 text-right font-semibold text-slate-200">
+                      {formatCurrency(comp.price)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

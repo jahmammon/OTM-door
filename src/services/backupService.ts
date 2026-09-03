@@ -81,18 +81,21 @@ export async function restoreDatabaseBackup(
 
   let data: BackupPayload['data'];
   if (parsed.data && parsed.version) {
-    // Verify checksum
+    // Verify checksum strictly
     const rawDataJson = JSON.stringify(parsed.data);
     const calculatedChecksum = await computeChecksum(rawDataJson);
     if (parsed.checksum && parsed.checksum !== calculatedChecksum) {
-      console.warn('Avertissement: Le hachage de contrôle de la sauvegarde diffère.');
+      throw new Error(
+        "Échec du contrôle d'intégrité : L'empreinte de contrôle SHA-256 ne correspond pas. " +
+        "Le fichier de sauvegarde est corrompu, incomplet ou a été altéré. La restauration a été annulée."
+      );
     }
     data = parsed.data;
   } else if (parsed.company || parsed.orders || parsed.doorModels) {
     // Direct data export
     data = parsed;
   } else {
-    throw new Error('Structure de sauvegarde OTM DOOR non reconnue.');
+    throw new Error('Structure de sauvegarde OTM DOOR non reconnue ou fichier incomplet.');
   }
 
   // Atomic database restoration inside a transaction
@@ -185,6 +188,45 @@ export async function exportEncryptedBackup(password: string): Promise<void> {
 export async function restoreFromEncryptedBackup(file: File, password?: string): Promise<void> {
   const text = await file.text();
   await restoreDatabaseBackup(text, password);
+}
+
+export async function createDatabaseBackup(password?: string): Promise<string> {
+  const payloadData: BackupPayload['data'] = {
+    company: await db.company.toArray(),
+    settings: await db.settings.toArray(),
+    doorModels: await db.doorModels.toArray(),
+    materials: await db.materials.toArray(),
+    colours: await db.colours.toArray(),
+    frames: await db.frames.toArray(),
+    components: await db.components.toArray(),
+    bom: await db.bom.toArray(),
+    priceEntries: await db.priceEntries.toArray(),
+    clients: await db.clients.toArray(),
+    orders: await db.orders.toArray(),
+    orderItems: await db.orderItems.toArray(),
+    payments: await db.payments.toArray(),
+    productionOrders: await db.productionOrders.toArray(),
+    stockItems: await db.stockItems.toArray(),
+    stockMovements: await db.stockMovements.toArray(),
+    auditLogs: await db.auditLogs.toArray()
+  };
+
+  const rawJson = JSON.stringify(payloadData);
+  const checksum = await computeChecksum(rawJson);
+
+  const payload: BackupPayload = {
+    version: BACKUP_FORMAT_VERSION,
+    appVersion: APP_VERSION,
+    timestamp: new Date().toISOString(),
+    checksum,
+    data: payloadData
+  };
+
+  const payloadJson = JSON.stringify(payload, null, 2);
+  if (password && password.trim() !== '') {
+    return await encryptData(payloadJson, password);
+  }
+  return payloadJson;
 }
 
 export async function getDatabaseStats(): Promise<Record<string, number>> {
