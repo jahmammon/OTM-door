@@ -1,0 +1,6 @@
+{
+  "name": "OTM DOOR",
+  "description": "Application offline-first de gestion commerciale, stock, nomenclatures et production pour la fabrication et vente de portes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

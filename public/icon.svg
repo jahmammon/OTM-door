@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="96" fill="#1e293b"/>
+  <rect x="80" y="70" width="352" height="372" rx="16" stroke="#c59b27" stroke-width="20" fill="#0f172a"/>
+  <!-- Door frame -->
+  <rect x="130" y="110" width="252" height="332" rx="8" stroke="#38bdf8" stroke-width="12" fill="#1e293b"/>
+  <!-- Door panels -->
+  <rect x="160" y="140" width="192" height="120" rx="6" stroke="#c59b27" stroke-width="8" fill="#0f172a"/>
+  <rect x="160" y="290" width="192" height="130" rx="6" stroke="#c59b27" stroke-width="8" fill="#0f172a"/>
+  <!-- Handle -->
+  <circle cx="330" cy="270" r="14" fill="#f59e0b"/>
+  <rect x="330" y="266" width="30" height="8" rx="4" fill="#f59e0b"/>
+  <!-- Text OTM -->
+  <text x="256" y="475" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-weight="900" font-size="36" fill="#f8fafc" letter-spacing="4">OTM DOOR</text>
+</svg>
