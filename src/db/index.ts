@@ -16,7 +16,10 @@ import type {
   ProductionOrder,
   StockItem,
   StockMovement,
-  AuditLog
+  AuditLog,
+  Worker,
+  WorkerAdvance,
+  WorkerBonus
 } from '../types';
 
 export class OtmDoorDatabase extends Dexie {
@@ -37,9 +40,12 @@ export class OtmDoorDatabase extends Dexie {
   stockItems!: Table<StockItem, string>;
   stockMovements!: Table<StockMovement, string>;
   auditLogs!: Table<AuditLog, string>;
+  workers!: Table<Worker, string>;
+  workerAdvances!: Table<WorkerAdvance, string>;
+  workerBonuses!: Table<WorkerBonus, string>;
 
-  constructor() {
-    super('OtmDoorDB');
+  constructor(dbName: string = 'OtmDoorDB') {
+    super(dbName);
     this.version(1).stores({
       company: '++id, name',
       settings: '++id',
@@ -59,10 +65,40 @@ export class OtmDoorDatabase extends Dexie {
       stockMovements: 'id, date, direction, type, stockItemId, createdAt',
       auditLogs: 'id, date, action, objectType, createdAt'
     });
+    this.version(2).stores({
+      workers: 'id, name, fonction, active, createdAt',
+      workerAdvances: 'id, workerId, date, createdAt'
+    });
+    this.version(3).stores({
+      workerBonuses: 'id, workerId, date, createdAt'
+    });
   }
 }
 
-export const db = new OtmDoorDatabase();
+let activeDb: OtmDoorDatabase = new OtmDoorDatabase('OtmDoorDB');
+
+export function setActiveDatabase(newDb: OtmDoorDatabase): void {
+  activeDb = newDb;
+}
+
+export function getActiveDatabase(): OtmDoorDatabase {
+  return activeDb;
+}
+
+export const db: OtmDoorDatabase = new Proxy({} as OtmDoorDatabase, {
+  get(_target, prop) {
+    const target = activeDb as any;
+    const value = target[prop];
+    if (typeof value === 'function') {
+      return value.bind(target);
+    }
+    return value;
+  },
+  set(_target, prop, value) {
+    (activeDb as any)[prop] = value;
+    return true;
+  }
+});
 
 export async function getCompanyInfo(): Promise<CompanyInfo | undefined> {
   const all = await db.company.toArray();

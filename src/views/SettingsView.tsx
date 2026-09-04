@@ -46,6 +46,8 @@ export const SettingsView: React.FC = () => {
     if (appSettings) {
       await db.settings.put({
         ...appSettings,
+        setupCompleted: true,
+        isInitialized: true,
         updatedAt: new Date().toISOString()
       });
     }

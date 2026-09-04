@@ -481,4 +481,55 @@ describe('OTM DOOR — Comprehensive Business & Data Integrity Test Suite', () =
     expect(unlockResult).toBe(true);
     expect(isSessionUnlocked()).toBe(true);
   });
+
+  // =========================================================================
+  // SCENARIO K: Payment exceeding remaining balance rejection
+  // =========================================================================
+  it('Scenario K: Payment exceeding remaining balance is strictly rejected with French error', async () => {
+    // Create an order with totalAmount = 50 000 DA
+    const order = await createOrder({
+      clientId: testClient.id,
+      items: [
+        {
+          modelId: testModel.id,
+          materialName: 'WPC',
+          colourId: testColour.id,
+          frameId: testFrame.id,
+          width: 80,
+          height: 210,
+          quantity: 2,
+          unitPrice: 25000
+        }
+      ]
+    });
+
+    expect(order.totalAmount).toBe(50000);
+    expect(order.remainingAmount).toBe(50000);
+
+    // 1. Paying 20 000 DA is valid
+    const pay1 = await createPayment({
+      orderId: order.id,
+      amount: 20000,
+      paymentMethod: 'Espèces'
+    });
+    expect(pay1.amount).toBe(20000);
+
+    // Remaining balance is now 30 000 DA
+    const updatedOrder = await db.orders.get(order.id);
+    expect(updatedOrder?.remainingAmount).toBe(30000);
+
+    // 2. Paying 35 000 DA (exceeding 30 000 DA) MUST be rejected with clear French error
+    await expect(
+      createPayment({
+        orderId: order.id,
+        amount: 35000,
+        paymentMethod: 'Espèces'
+      })
+    ).rejects.toThrow(/ne peut pas être supérieur au solde restant/i);
+
+    // Ensure order remaining amount was NOT modified
+    const orderAfterRejectedPay = await db.orders.get(order.id);
+    expect(orderAfterRejectedPay?.remainingAmount).toBe(30000);
+    expect(orderAfterRejectedPay?.paidAmount).toBe(20000);
+  });
 });

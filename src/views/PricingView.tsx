@@ -11,6 +11,7 @@ import {
   X
 } from 'lucide-react';
 import { db, recordAudit } from '../db';
+import { ensureCatalogueSeeded } from '../services/demoDataService';
 import type { PriceEntry, DoorModel, Material } from '../types';
 import { formatCurrency } from '../services/documentService';
 
@@ -28,6 +29,7 @@ export const PricingView: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
+      await ensureCatalogueSeeded();
       const [allPrices, allModels, allMats] = await Promise.all([
         db.priceEntries.toArray(),
         db.doorModels.toArray(),

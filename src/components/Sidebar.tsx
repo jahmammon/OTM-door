@@ -6,6 +6,7 @@ import {
   ShoppingCart,
   Hammer,
   Users,
+  UserCheck,
   Tag,
   CreditCard,
   BarChart3,
@@ -31,6 +32,7 @@ export type MainNavSection =
   | 'ORDERS'
   | 'PRODUCTION'
   | 'CLIENTS'
+  | 'WORKERS'
   | 'PRICING'
   | 'PAYMENTS'
   | 'REPORTS'
@@ -421,6 +423,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           <Users className="w-4 h-4" />
           <span>Clients</span>
+        </button>
+
+        {/* OUVRIERS */}
+        <button
+          id="nav-workers"
+          onClick={() => onNavigate('WORKERS')}
+          className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition cursor-pointer ${
+            currentSection === 'WORKERS'
+              ? 'bg-amber-500 text-slate-950 font-bold shadow-md shadow-amber-500/10'
+              : 'hover:bg-slate-900 text-slate-300 hover:text-white'
+          }`}
+        >
+          <UserCheck className="w-4 h-4" />
+          <span>Ouvriers</span>
         </button>
 
         {/* TARIFICATION */}

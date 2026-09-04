@@ -23,7 +23,10 @@ export async function exportDatabaseBackup(password?: string): Promise<{ blob: B
     productionOrders: await db.productionOrders.toArray(),
     stockItems: await db.stockItems.toArray(),
     stockMovements: await db.stockMovements.toArray(),
-    auditLogs: await db.auditLogs.toArray()
+    auditLogs: await db.auditLogs.toArray(),
+    workers: await db.workers.toArray(),
+    workerAdvances: await db.workerAdvances.toArray(),
+    workerBonuses: await db.workerBonuses.toArray()
   };
 
   const rawJson = JSON.stringify(payloadData);
@@ -117,7 +120,10 @@ export async function restoreDatabaseBackup(
     db.productionOrders,
     db.stockItems,
     db.stockMovements,
-    db.auditLogs
+    db.auditLogs,
+    db.workers,
+    db.workerAdvances,
+    db.workerBonuses
   ], async () => {
     // Clear all existing tables
     await Promise.all([
@@ -137,7 +143,10 @@ export async function restoreDatabaseBackup(
       db.productionOrders.clear(),
       db.stockItems.clear(),
       db.stockMovements.clear(),
-      db.auditLogs.clear()
+      db.auditLogs.clear(),
+      db.workers.clear(),
+      db.workerAdvances.clear(),
+      db.workerBonuses.clear()
     ]);
 
     // Restore tables
@@ -158,6 +167,9 @@ export async function restoreDatabaseBackup(
     if (data.stockItems?.length) { await db.stockItems.bulkAdd(data.stockItems); totalRecords += data.stockItems.length; }
     if (data.stockMovements?.length) { await db.stockMovements.bulkAdd(data.stockMovements); totalRecords += data.stockMovements.length; }
     if (data.auditLogs?.length) { await db.auditLogs.bulkAdd(data.auditLogs); totalRecords += data.auditLogs.length; }
+    if (data.workers?.length) { await db.workers.bulkAdd(data.workers); totalRecords += data.workers.length; }
+    if (data.workerAdvances?.length) { await db.workerAdvances.bulkAdd(data.workerAdvances); totalRecords += data.workerAdvances.length; }
+    if (data.workerBonuses?.length) { await db.workerBonuses.bulkAdd(data.workerBonuses); totalRecords += data.workerBonuses.length; }
   });
 
   await recordAudit(
@@ -208,7 +220,10 @@ export async function createDatabaseBackup(password?: string): Promise<string> {
     productionOrders: await db.productionOrders.toArray(),
     stockItems: await db.stockItems.toArray(),
     stockMovements: await db.stockMovements.toArray(),
-    auditLogs: await db.auditLogs.toArray()
+    auditLogs: await db.auditLogs.toArray(),
+    workers: await db.workers.toArray(),
+    workerAdvances: await db.workerAdvances.toArray(),
+    workerBonuses: await db.workerBonuses.toArray()
   };
 
   const rawJson = JSON.stringify(payloadData);

@@ -57,6 +57,617 @@ async function loadLogoDataUrl(customLogo?: string): Promise<string | null> {
   });
 }
 
+async function loadLogoImage(logoDataUrl?: string | null): Promise<HTMLImageElement | null> {
+  if (!logoDataUrl || typeof Image === 'undefined') return null;
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = logoDataUrl;
+  });
+}
+
+function drawRoundRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number
+) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+/**
+ * Renders the Arabic copy of an Order / Quote (A4 resolution @ 200dpi: 1654 x 2339)
+ */
+async function renderArabicOrderCanvas(
+  order: Order,
+  items: OrderItem[],
+  company?: CompanyInfo,
+  isQuote: boolean = false
+): Promise<string | null> {
+  if (typeof document === 'undefined') return null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 1654;
+  canvas.height = 2339;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  // Background
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Top Accent Bar
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, canvas.width, 50);
+
+  // Company logo (top right)
+  const logoData = await loadLogoDataUrl(company?.logo);
+  const logoImg = await loadLogoImage(logoData);
+  if (logoImg) {
+    try {
+      ctx.drawImage(logoImg, canvas.width - 200, 70, 120, 120);
+    } catch {}
+  }
+
+  // Company details in Arabic (RTL)
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.direction = 'rtl';
+  const headerTextRight = logoImg ? canvas.width - 220 : canvas.width - 80;
+
+  ctx.font = 'bold 36px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#0f172a';
+  ctx.fillText(company?.name || 'شركة OTM DOOR', headerTextRight, 75);
+
+  ctx.font = 'normal 19px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#64748b';
+  ctx.fillText('صناعة وبيع الأبواب الداخلية والخارجية (WPC - MDF - PVC)', headerTextRight, 125);
+
+  const addressLine = [company?.address, company?.commune, company?.wilaya].filter(Boolean).join('، ') || 'المنطقة الصناعية - الجزائر';
+  ctx.fillText(addressLine, headerTextRight, 155);
+
+  const phoneLine = `الهاتف: ${company?.phone1 || '0555 00 00 00'} ${company?.phone2 ? ' / ' + company.phone2 : ''} — البريد: ${company?.email || 'contact@otmdoor.com'}`;
+  ctx.fillText(phoneLine, headerTextRight, 185);
+
+  // Document Box (Left side)
+  ctx.fillStyle = '#f1f5f9';
+  drawRoundRect(ctx, 80, 70, 480, 145, 12);
+  ctx.fill();
+
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 28px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#0f172a';
+  ctx.fillText(isQuote ? 'عرض أسعار تقديري / فاتورة شكلية' : 'وصل طلبية / استمارة طلبية', 320, 90);
+
+  ctx.font = 'bold 23px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#c59b27';
+  ctx.fillText(isQuote ? `DEV-${order.orderNumber}` : `BC-${order.orderNumber}`, 320, 135);
+
+  ctx.font = 'normal 18px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#475569';
+  ctx.fillText(`التاريخ : ${formatDateFr(order.date)}`, 320, 175);
+
+  // Client Box
+  let y = 255;
+  ctx.fillStyle = '#f8fafc';
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 1.5;
+  drawRoundRect(ctx, 80, y, 1494, 135, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = 'right';
+  ctx.font = 'bold 21px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#1e293b';
+  ctx.fillText('معلومات الزبون', 1540, y + 15);
+
+  ctx.font = 'normal 18px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#334155';
+  ctx.fillText(`الزبون : ${order.clientNameSnapshot}`, 1540, y + 55);
+  ctx.fillText(`الهاتف : ${order.clientPhoneSnapshot || 'غير محدد'}`, 1540, y + 95);
+
+  ctx.fillText(`العنوان : ${order.clientAddressSnapshot || 'غير محدد'}`, 800, y + 55);
+  ctx.fillText(`تاريخ التسليم المتوقع : ${order.expectedDate ? formatDateFr(order.expectedDate) : 'حسب الاتفاق'}`, 800, y + 95);
+
+  // Items Table
+  y = 425;
+  const startX = 80;
+  const tableWidth = 1494;
+  const colWidths = [70, 240, 150, 180, 200, 180, 110, 174, 190];
+  const headers = ['رقم', 'النموذج', 'المادة', 'اللون', 'المقاسات (سم)', 'نوع الإطار', 'الكمية', 'السعر الفردي', 'المجموع'];
+
+  // Table Header bar
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(startX, y, tableWidth, 50);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 18px "Amiri", Arial, sans-serif';
+  ctx.textAlign = 'center';
+
+  let curX = startX;
+  headers.forEach((h, idx) => {
+    ctx.fillText(h, curX + colWidths[idx] / 2, y + 14);
+    curX += colWidths[idx];
+  });
+
+  y += 50;
+
+  // Rows
+  ctx.font = 'normal 17px "Amiri", Arial, sans-serif';
+  items.forEach((item, index) => {
+    const rowBg = index % 2 === 0 ? '#ffffff' : '#f8fafc';
+    ctx.fillStyle = rowBg;
+    ctx.fillRect(startX, y, tableWidth, 48);
+
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(startX, y, tableWidth, 48);
+
+    curX = startX;
+    ctx.fillStyle = '#1e293b';
+    ctx.textAlign = 'center';
+
+    // 0: N°
+    ctx.fillText(String(index + 1), curX + colWidths[0] / 2, y + 14);
+    curX += colWidths[0];
+
+    // 1: Model
+    ctx.fillText(item.modelRefSnapshot || 'P-001', curX + colWidths[1] / 2, y + 14);
+    curX += colWidths[1];
+
+    // 2: Material
+    ctx.fillText(item.materialName || 'WPC', curX + colWidths[2] / 2, y + 14);
+    curX += colWidths[2];
+
+    // 3: Colour
+    ctx.fillText(item.colourNameSnapshot || 'قياسي', curX + colWidths[3] / 2, y + 14);
+    curX += colWidths[3];
+
+    // 4: Dimensions
+    ctx.fillText(`${item.width} × ${item.height} سم`, curX + colWidths[4] / 2, y + 14);
+    curX += colWidths[4];
+
+    // 5: Frame
+    ctx.fillText(item.frameNameSnapshot || '—', curX + colWidths[5] / 2, y + 14);
+    curX += colWidths[5];
+
+    // 6: Quantity
+    ctx.fillText(String(item.quantity), curX + colWidths[6] / 2, y + 14);
+    curX += colWidths[6];
+
+    // 7: Unit Price
+    ctx.fillText(`${item.unitPrice.toLocaleString('fr-DZ')} دج`, curX + colWidths[7] / 2, y + 14);
+    curX += colWidths[7];
+
+    // 8: Line Total
+    const lineTotal = (item.unitPrice || 0) * (item.quantity || 1);
+    ctx.fillText(`${lineTotal.toLocaleString('fr-DZ')} دج`, curX + colWidths[8] / 2, y + 14);
+
+    y += 48;
+  });
+
+  // Totals Section
+  y += 25;
+  const totalsBoxX = 80;
+  const totalsBoxW = 600;
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.strokeStyle = '#cbd5e1';
+  drawRoundRect(ctx, totalsBoxX, y, totalsBoxW, 190, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = 'right';
+  ctx.font = 'normal 18px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#475569';
+  ctx.fillText('المجموع الجزئي :', totalsBoxX + totalsBoxW - 20, y + 20);
+  ctx.fillText(`${order.subtotal.toLocaleString('fr-DZ')} دج`, totalsBoxX + 40, y + 20);
+
+  if (order.discount && order.discount > 0) {
+    ctx.fillText('تخفيض استثنائي :', totalsBoxX + totalsBoxW - 20, y + 55);
+    ctx.fillText(`- ${order.discount.toLocaleString('fr-DZ')} دج`, totalsBoxX + 40, y + 55);
+  }
+
+  // Total amount highlight
+  ctx.fillStyle = '#e2e8f0';
+  ctx.fillRect(totalsBoxX + 10, y + 85, totalsBoxW - 20, 42);
+
+  ctx.font = 'bold 20px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#0f172a';
+  ctx.fillText('المجموع الإجمالي للطلبية :', totalsBoxX + totalsBoxW - 20, y + 95);
+  ctx.fillText(`${order.totalAmount.toLocaleString('fr-DZ')} دج`, totalsBoxX + 40, y + 95);
+
+  ctx.font = 'bold 18px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#15803d';
+  ctx.fillText('المبلغ المدفوع / التسبيق :', totalsBoxX + totalsBoxW - 20, y + 145);
+  ctx.fillText(`${order.paidAmount.toLocaleString('fr-DZ')} دج`, totalsBoxX + 40, y + 145);
+
+  // Remaining Box
+  y += 215;
+  ctx.fillStyle = '#fef2f2';
+  ctx.strokeStyle = '#fca5a5';
+  drawRoundRect(ctx, totalsBoxX, y, totalsBoxW, 55, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.font = 'bold 21px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#b91c1c';
+  ctx.fillText('الباقي للدفع :', totalsBoxX + totalsBoxW - 20, y + 15);
+  ctx.fillText(`${order.remainingAmount.toLocaleString('fr-DZ')} دج`, totalsBoxX + 40, y + 15);
+
+  // Observations
+  if (order.notes) {
+    y = Math.max(y + 80, 1750);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = 'bold 18px "Amiri", Arial, sans-serif';
+    ctx.fillText('ملاحظات خاصة :', canvas.width - 100, y);
+    ctx.font = 'normal 17px "Amiri", Arial, sans-serif';
+    ctx.fillStyle = '#475569';
+    ctx.fillText(order.notes, canvas.width - 100, y + 30);
+  }
+
+  // Signatures
+  const signY = 2050;
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 1.5;
+
+  ctx.beginPath();
+  ctx.moveTo(canvas.width - 450, signY);
+  ctx.lineTo(canvas.width - 100, signY);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(100, signY);
+  ctx.lineTo(450, signY);
+  ctx.stroke();
+
+  ctx.font = 'bold 18px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#64748b';
+  ctx.textAlign = 'center';
+  ctx.fillText('إمضاء وموافقة الزبون', canvas.width - 275, signY + 15);
+  ctx.fillText('ختم وتأشيرة شركة OTM DOOR', 275, signY + 15);
+
+  // Footer
+  ctx.font = 'normal 16px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#94a3b8';
+  ctx.textAlign = 'center';
+  ctx.fillText('OTM DOOR — صناعة الأبواب الداخلية والخارجية عالية الجودة — وثيقة مستخرجة إلكترونياً (النسخة العربية)', canvas.width / 2, 2280);
+
+  return canvas.toDataURL('image/png');
+}
+
+/**
+ * Renders the Arabic copy of Delivery Note (A4 resolution @ 200dpi: 1654 x 2339)
+ */
+async function renderArabicDeliveryNoteCanvas(
+  order: Order,
+  items: OrderItem[],
+  company?: CompanyInfo
+): Promise<string | null> {
+  if (typeof document === 'undefined') return null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 1654;
+  canvas.height = 2339;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, canvas.width, 50);
+
+  const logoData = await loadLogoDataUrl(company?.logo);
+  const logoImg = await loadLogoImage(logoData);
+  if (logoImg) {
+    try {
+      ctx.drawImage(logoImg, canvas.width - 200, 70, 120, 120);
+    } catch {}
+  }
+
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.direction = 'rtl';
+  const headerTextRight = logoImg ? canvas.width - 220 : canvas.width - 80;
+
+  ctx.font = 'bold 36px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#0f172a';
+  ctx.fillText(company?.name || 'شركة OTM DOOR', headerTextRight, 75);
+
+  ctx.font = 'normal 19px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#64748b';
+  ctx.fillText('صناعة وبيع الأبواب الداخلية والخارجية (WPC - MDF - PVC)', headerTextRight, 125);
+
+  const addressLine = [company?.address, company?.commune, company?.wilaya].filter(Boolean).join('، ') || 'المنطقة الصناعية - الجزائر';
+  ctx.fillText(addressLine, headerTextRight, 155);
+
+  const phoneLine = `الهاتف: ${company?.phone1 || '0555 00 00 00'} ${company?.phone2 ? ' / ' + company.phone2 : ''}`;
+  ctx.fillText(phoneLine, headerTextRight, 185);
+
+  // Document Box (Left)
+  ctx.fillStyle = '#f1f5f9';
+  drawRoundRect(ctx, 80, 70, 480, 145, 12);
+  ctx.fill();
+
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 28px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#0f172a';
+  ctx.fillText('وصل تسليم بضاعة', 320, 90);
+
+  ctx.font = 'bold 23px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#c59b27';
+  ctx.fillText(`BL-${order.orderNumber}`, 320, 135);
+
+  ctx.font = 'normal 18px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#475569';
+  ctx.fillText(`التاريخ : ${formatDateFr(new Date().toISOString())}`, 320, 175);
+
+  // Client Box
+  let y = 255;
+  ctx.fillStyle = '#f8fafc';
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 1.5;
+  drawRoundRect(ctx, 80, y, 1494, 135, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = 'right';
+  ctx.font = 'bold 21px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#1e293b';
+  ctx.fillText('معلومات المستلم / الزبون', 1540, y + 15);
+
+  ctx.font = 'normal 18px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#334155';
+  ctx.fillText(`الزبون : ${order.clientNameSnapshot}`, 1540, y + 55);
+  ctx.fillText(`الهاتف : ${order.clientPhoneSnapshot || 'غير محدد'}`, 1540, y + 95);
+
+  ctx.fillText(`عنوان التسليم : ${order.clientAddressSnapshot || 'غير محدد'}`, 800, y + 55);
+  ctx.fillText(`رقم الطلبية الأصلية : ${order.orderNumber}`, 800, y + 95);
+
+  // Table
+  y = 425;
+  const startX = 80;
+  const tableWidth = 1494;
+  const colWidths = [80, 270, 200, 240, 270, 274, 160];
+  const headers = ['رقم', 'النموذج', 'المادة', 'اللون', 'المقاسات (سم)', 'نوع الإطار', 'الكمية المسلمة'];
+
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(startX, y, tableWidth, 50);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 18px "Amiri", Arial, sans-serif';
+  ctx.textAlign = 'center';
+
+  let curX = startX;
+  headers.forEach((h, idx) => {
+    ctx.fillText(h, curX + colWidths[idx] / 2, y + 14);
+    curX += colWidths[idx];
+  });
+
+  y += 50;
+
+  ctx.font = 'normal 17px "Amiri", Arial, sans-serif';
+  items.forEach((item, index) => {
+    const rowBg = index % 2 === 0 ? '#ffffff' : '#f8fafc';
+    ctx.fillStyle = rowBg;
+    ctx.fillRect(startX, y, tableWidth, 48);
+
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(startX, y, tableWidth, 48);
+
+    curX = startX;
+    ctx.fillStyle = '#1e293b';
+    ctx.textAlign = 'center';
+
+    ctx.fillText(String(index + 1), curX + colWidths[0] / 2, y + 14);
+    curX += colWidths[0];
+
+    ctx.fillText(item.modelRefSnapshot || 'P-001', curX + colWidths[1] / 2, y + 14);
+    curX += colWidths[1];
+
+    ctx.fillText(item.materialName || 'WPC', curX + colWidths[2] / 2, y + 14);
+    curX += colWidths[2];
+
+    ctx.fillText(item.colourNameSnapshot || 'قياسي', curX + colWidths[3] / 2, y + 14);
+    curX += colWidths[3];
+
+    ctx.fillText(`${item.width} × ${item.height} سم`, curX + colWidths[4] / 2, y + 14);
+    curX += colWidths[4];
+
+    ctx.fillText(item.frameNameSnapshot || '—', curX + colWidths[5] / 2, y + 14);
+    curX += colWidths[5];
+
+    ctx.fillText(`${item.quantity} باب`, curX + colWidths[6] / 2, y + 14);
+
+    y += 48;
+  });
+
+  // Delivery statement
+  y += 35;
+  ctx.fillStyle = '#f8fafc';
+  ctx.strokeStyle = '#cbd5e1';
+  drawRoundRect(ctx, startX, y, tableWidth, 80, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.textAlign = 'right';
+  ctx.font = 'bold 18px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#1e293b';
+  ctx.fillText('إقرار استلام البضاعة :', startX + tableWidth - 30, y + 15);
+
+  ctx.font = 'normal 17px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#475569';
+  ctx.fillText('أقر أنا الموقع أسفله أنني استلمت كامل البضاعة والكميات المبينة أعلاه بحالة ممتازة ومطابقة للمواصفات.', startX + tableWidth - 30, y + 45);
+
+  // Signatures
+  const signY = 2050;
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 1.5;
+
+  ctx.beginPath();
+  ctx.moveTo(canvas.width - 450, signY);
+  ctx.lineTo(canvas.width - 100, signY);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(100, signY);
+  ctx.lineTo(450, signY);
+  ctx.stroke();
+
+  ctx.font = 'bold 18px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#64748b';
+  ctx.textAlign = 'center';
+  ctx.fillText('إمضاء واستلام الزبون (استلمت بحالة جيدة)', canvas.width - 275, signY + 15);
+  ctx.fillText('تأشيرة ومصلحة التسليم OTM DOOR', 275, signY + 15);
+
+  // Footer
+  ctx.font = 'normal 16px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#94a3b8';
+  ctx.textAlign = 'center';
+  ctx.fillText('OTM DOOR — وصل تسليم رسمي مطابق للقانون التجاري (النسخة العربية)', canvas.width / 2, 2280);
+
+  return canvas.toDataURL('image/png');
+}
+
+/**
+ * Renders the Arabic copy of Payment Receipt (A5 resolution @ 200dpi: 1165 x 1654)
+ */
+async function renderArabicPaymentReceiptCanvas(
+  payment: Payment,
+  order?: Order,
+  company?: CompanyInfo
+): Promise<string | null> {
+  if (typeof document === 'undefined') return null;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 1165;
+  canvas.height = 1654;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, canvas.width, 45);
+
+  const logoData = await loadLogoDataUrl(company?.logo);
+  const logoImg = await loadLogoImage(logoData);
+  if (logoImg) {
+    try {
+      ctx.drawImage(logoImg, canvas.width - 150, 65, 90, 90);
+    } catch {}
+  }
+
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.direction = 'rtl';
+  const headerTextRight = logoImg ? canvas.width - 170 : canvas.width - 60;
+
+  ctx.font = 'bold 28px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#0f172a';
+  ctx.fillText(company?.name || 'شركة OTM DOOR', headerTextRight, 65);
+
+  ctx.font = 'normal 16px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#64748b';
+  ctx.fillText('وصل دفع وقبض مالي معتمد', headerTextRight, 105);
+
+  // Receipt Box
+  let y = 175;
+  ctx.fillStyle = '#f8fafc';
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 1.5;
+  drawRoundRect(ctx, 60, y, 1045, 340, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.font = 'bold 20px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#1e293b';
+  ctx.fillText(`رقم الوصل : ${payment.receiptNumber}`, 1070, y + 25);
+  ctx.fillText(`التاريخ : ${formatDateFr(payment.date)}`, 300, y + 25);
+
+  ctx.font = 'normal 18px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#334155';
+  ctx.fillText(`اسم الزبون : ${payment.clientNameSnapshot}`, 1070, y + 75);
+  ctx.fillText(`الطلبية المرتبطة : ${payment.orderNumberSnapshot}`, 1070, y + 120);
+
+  const paymentMethodAr =
+    payment.paymentMethod === 'Espèces'
+      ? 'نقداً (كاش)'
+      : payment.paymentMethod === 'Virement'
+      ? 'تحويل بنكي'
+      : payment.paymentMethod === 'CCP'
+      ? 'حساب بريدي جاري CCP'
+      : (payment.paymentMethod as string);
+
+  ctx.fillText(`طريقة الدفع : ${paymentMethodAr}`, 1070, y + 165);
+  if (payment.reference) {
+    ctx.fillText(`المرجع / الشيك : ${payment.reference}`, 1070, y + 210);
+  }
+
+  // Amount badge
+  ctx.fillStyle = '#f0fdf4';
+  ctx.strokeStyle = '#86efac';
+  drawRoundRect(ctx, 80, y + 250, 1005, 65, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.font = 'bold 22px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#15803d';
+  ctx.fillText('المبلغ المقبوض :', 1050, y + 270);
+  ctx.fillText(`${payment.amount.toLocaleString('fr-DZ')} دج`, 300, y + 270);
+
+  // Order summary if available
+  if (order) {
+    y = 545;
+    ctx.font = 'normal 17px "Amiri", Arial, sans-serif';
+    ctx.fillStyle = '#475569';
+    ctx.fillText(`إجمالي قيمة الطلبية : ${order.totalAmount.toLocaleString('fr-DZ')} دج`, 1070, y);
+    ctx.fillText(`مجموع المدفوعات حتى الآن : ${order.paidAmount.toLocaleString('fr-DZ')} دج`, 1070, y + 35);
+
+    ctx.font = 'bold 18px "Amiri", Arial, sans-serif';
+    ctx.fillStyle = '#b91c1c';
+    ctx.fillText(`الرصيد المتبقي للدفع : ${order.remainingAmount.toLocaleString('fr-DZ')} دج`, 1070, y + 75);
+  }
+
+  // Signature
+  const signY = 1420;
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.beginPath();
+  ctx.moveTo(canvas.width - 380, signY);
+  ctx.lineTo(canvas.width - 80, signY);
+  ctx.stroke();
+
+  ctx.font = 'bold 16px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#64748b';
+  ctx.textAlign = 'center';
+  ctx.fillText('ختم وتأشيرة أمين الصندوق OTM DOOR', canvas.width - 230, signY + 15);
+
+  // Footer
+  ctx.font = 'normal 15px "Amiri", Arial, sans-serif';
+  ctx.fillStyle = '#94a3b8';
+  ctx.textAlign = 'center';
+  ctx.fillText('OTM DOOR — وصل دفع معتمد وإثبات رسمي للمعاملة المالية (النسخة العربية)', canvas.width / 2, 1600);
+
+  return canvas.toDataURL('image/png');
+}
+
 export async function generateOrderPdf(
   order: Order,
   items: OrderItem[],
@@ -275,6 +886,17 @@ export async function generateOrderPdf(
   const footerText = company?.footerText || 'OTM DOOR — Portes Haut de Gamme — Document généré localement hors ligne';
   doc.text(footerText, pageWidth / 2, 290, { align: 'center' });
 
+  // Page 2: Arabic Version (RTL, translated labels, exact same data)
+  try {
+    const arabicImgData = await renderArabicOrderCanvas(order, items, company, isQuote);
+    if (arabicImgData) {
+      doc.addPage();
+      doc.addImage(arabicImgData, 'PNG', 0, 0, pageWidth, doc.internal.pageSize.getHeight());
+    }
+  } catch (err) {
+    console.error('Erreur génération page arabe:', err);
+  }
+
   const filename = isQuote ? `Devis_${order.orderNumber}.pdf` : `Bon_Commande_${order.orderNumber}.pdf`;
   doc.save(filename);
 }
@@ -285,6 +907,166 @@ export async function generateQuotePdf(
   company?: CompanyInfo
 ): Promise<void> {
   return generateOrderPdf(order, items, company, true);
+}
+
+export async function generateDeliveryNotePdf(
+  order: Order,
+  items: OrderItem[],
+  company?: CompanyInfo
+): Promise<void> {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  let y = 18;
+
+  // Page 1: French Bon de Livraison
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, pageWidth, 8, 'F');
+
+  const logoData = await loadLogoDataUrl(company?.logo);
+  const textStartX = logoData ? 38 : 14;
+  if (logoData) {
+    try { doc.addImage(logoData, 'PNG', 14, 12, 20, 20); } catch {}
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(22);
+  doc.setTextColor(15, 23, 42);
+  doc.text(company?.name || 'OTM DOOR', textStartX, y);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(100, 116, 139);
+  y += 5;
+  doc.text('Fabrication & Vente de Portes d’Intérieur et d’Extérieur (WPC - MDF - PVC)', textStartX, y);
+
+  if (company) {
+    y += 4;
+    const addressLine = [company.address, company.commune, company.wilaya].filter(Boolean).join(', ');
+    doc.text(addressLine || 'Zone Industrielle', textStartX, y);
+    y += 4;
+    const phoneLine = `Tél: ${company.phone1 || ''} ${company.phone2 ? ' / ' + company.phone2 : ''} - Email: ${company.email || 'contact@otmdoor.com'}`;
+    doc.text(phoneLine, textStartX, y);
+  }
+
+  // Right box
+  doc.setFillColor(241, 245, 249);
+  doc.roundedRect(pageWidth - 75, 12, 61, 26, 2, 2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.setTextColor(15, 23, 42);
+  doc.text('BON DE LIVRAISON', pageWidth - 70, 20);
+
+  doc.setFontSize(11);
+  doc.setTextColor(197, 155, 39);
+  doc.text(`BL-${order.orderNumber}`, pageWidth - 70, 27);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`Date: ${formatDateFr(new Date().toISOString())}`, pageWidth - 70, 34);
+
+  // Client Box
+  y = 44;
+  doc.setDrawColor(226, 232, 240);
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(14, y, pageWidth - 28, 24, 2, 2, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(30, 41, 59);
+  doc.text('INFORMATIONS DESTINATAIRE / CLIENT', 18, y + 6);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.setTextColor(51, 65, 85);
+  doc.text(`Client : ${order.clientNameSnapshot}`, 18, y + 13);
+  doc.text(`Téléphone : ${order.clientPhoneSnapshot || 'Non spécifié'}`, 18, y + 19);
+  doc.text(`Adresse de livraison : ${order.clientAddressSnapshot || 'Non spécifiée'}`, pageWidth / 2 + 10, y + 13);
+  doc.text(`Réf. Commande : ${order.orderNumber}`, pageWidth / 2 + 10, y + 19);
+
+  // Items table
+  y = 74;
+  const startX = 14;
+  const colWidths = [12, 40, 28, 32, 34, 32];
+  const headers = ['N°', 'Modèle', 'Matière', 'Couleur', 'Dimensions', 'Quantité livrée'];
+
+  doc.setFillColor(30, 41, 59);
+  doc.rect(startX, y, pageWidth - 28, 8, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(255, 255, 255);
+
+  let currentX = startX + 2;
+  headers.forEach((h, idx) => {
+    doc.text(h, currentX, y + 5.5);
+    currentX += colWidths[idx];
+  });
+
+  y += 8;
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(30, 41, 59);
+
+  items.forEach((item, index) => {
+    const rowBg = index % 2 === 0 ? 255 : 248;
+    doc.setFillColor(rowBg, rowBg, rowBg);
+    doc.rect(startX, y, pageWidth - 28, 8, 'F');
+
+    currentX = startX + 2;
+    doc.text(String(index + 1), currentX, y + 5.5);
+    currentX += colWidths[0];
+    doc.text(item.modelRefSnapshot || 'P-001', currentX, y + 5.5);
+    currentX += colWidths[1];
+    doc.text(item.materialName || 'WPC', currentX, y + 5.5);
+    currentX += colWidths[2];
+    doc.text(item.colourNameSnapshot || 'Standard', currentX, y + 5.5);
+    currentX += colWidths[3];
+    doc.text(`${item.width} x ${item.height} cm`, currentX, y + 5.5);
+    currentX += colWidths[4];
+    doc.text(`${item.quantity} porte(s)`, currentX, y + 5.5);
+
+    y += 8;
+  });
+
+  // Receipt condition note
+  y += 12;
+  doc.setDrawColor(203, 213, 225);
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(14, y, pageWidth - 28, 16, 2, 2, 'FD');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(30, 41, 59);
+  doc.text('DÉCLARATION DE RÉCEPTION CONFORME :', 18, y + 6);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  doc.text('Je soussigné certifie avoir reçu les marchandises susmentionnées en parfait état de conformité.', 18, y + 11);
+
+  // Signatures
+  const signY = 245;
+  doc.setDrawColor(203, 213, 225);
+  doc.line(14, signY, 75, signY);
+  doc.line(pageWidth - 75, signY, pageWidth - 14, signY);
+  doc.setFontSize(8);
+  doc.setTextColor(100, 116, 139);
+  doc.text('Signature & Réception Client (Reçu conforme)', 14, signY + 5);
+  doc.text('Visa & Cachet Expédition OTM DOOR', pageWidth - 75, signY + 5);
+
+  doc.setFontSize(7.5);
+  doc.setTextColor(148, 163, 184);
+  doc.text(company?.footerText || 'OTM DOOR — Bon de Livraison Officiel', pageWidth / 2, 290, { align: 'center' });
+
+  // Page 2: Arabic Delivery Note Version
+  try {
+    const arabicImgData = await renderArabicDeliveryNoteCanvas(order, items, company);
+    if (arabicImgData) {
+      doc.addPage();
+      doc.addImage(arabicImgData, 'PNG', 0, 0, pageWidth, pageHeight);
+    }
+  } catch (err) {
+    console.error('Erreur génération BL arabe:', err);
+  }
+
+  doc.save(`Bon_Livraison_${order.orderNumber}.pdf`);
 }
 
 export async function generateProductionPdf(
@@ -499,7 +1281,56 @@ export async function generatePaymentReceiptPdf(
   doc.setTextColor(100, 116, 139);
   doc.text('Cachet & Signature OTM DOOR', pageWidth - 55, y + 4);
 
+  // Page 2: Arabic Receipt copy
+  try {
+    const arabicReceiptImg = await renderArabicPaymentReceiptCanvas(payment, order, company);
+    if (arabicReceiptImg) {
+      doc.addPage();
+      doc.addImage(arabicReceiptImg, 'PNG', 0, 0, pageWidth, doc.internal.pageSize.getHeight());
+    }
+  } catch (err) {
+    console.error('Erreur génération reçu arabe:', err);
+  }
+
   doc.save(`Recu_${payment.receiptNumber}.pdf`);
+}
+
+export function printBilingualDocument(
+  title: string,
+  contentFr: string,
+  contentAr: string
+): void {
+  if (typeof window === 'undefined') return;
+
+  const printWindow = window.open('', '_blank');
+  if (!printWindow) return;
+
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+      <meta charset="UTF-8">
+      <title>${title}</title>
+      <style>
+        @page { size: A4; margin: 15mm; }
+        body { font-family: sans-serif; color: #0f172a; margin: 0; padding: 0; }
+        .page { min-height: 90vh; }
+        .page.arabic { direction: rtl; font-family: 'Amiri', Arial, sans-serif; text-align: right; }
+        @media print {
+          .page-break { break-after: page; page-break-after: always; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="page french page-break">${contentFr}</div>
+      <div class="page arabic">${contentAr}</div>
+      <script>
+        window.onload = function() { window.print(); }
+      </script>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
 }
 
 export async function generateStockReportPdf(

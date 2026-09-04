@@ -68,8 +68,12 @@ export const TestsView: React.FC = () => {
             <h3 className="text-base font-bold text-white">Banc d'Essai & Validation Automatisée</h3>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Suite complète de 7 tests d'intégrité métier, gestion de stock, BOM et conformité Dexie.js
+            Suite complète de tests d'intégrité métier, gestion de stock, BOM et conformité Dexie.js
           </p>
+          <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            Environnement isolé (OtmDoorTestDB) — Données de production protégées
+          </div>
         </div>
 
         <button

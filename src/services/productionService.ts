@@ -151,7 +151,12 @@ export async function completeProduction(
     throw new Error(`Impossible de terminer la fabrication : La commande parente ${parentOrder.orderNumber} est annulée.`);
   }
 
-  // 4. Verify production is not already completed
+  // 4. Verify production order itself is not cancelled
+  if (prodOrder.status === 'ANNULÉE') {
+    throw new Error(`Impossible de fabriquer : L'ordre de production ${prodOrder.productionNumber} est annulé.`);
+  }
+
+  // 5. Verify production is not already completed
   if (prodOrder.status === 'TERMINÉE') {
     throw new Error('Cet ordre de production est déjà marqué comme terminé.');
   }

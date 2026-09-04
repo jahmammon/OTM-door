@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { db, getCompanyInfo, getSettings } from './db';
 import type { CompanyInfo, AppSettings, NavigationSection } from './types';
-import { checkIfFirstRun } from './services/demoDataService';
+import { checkIfFirstRun, ensureCatalogueSeeded } from './services/demoDataService';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { SetupWizard } from './components/SetupWizard';
@@ -15,6 +15,7 @@ import { ProductionView } from './views/ProductionView';
 import { CatalogView } from './views/CatalogView';
 import { PricingView } from './views/PricingView';
 import { ClientsView } from './views/ClientsView';
+import { WorkersView } from './views/WorkersView';
 import { PaymentsView } from './views/PaymentsView';
 import { ReportsView } from './views/ReportsView';
 import { SettingsView } from './views/SettingsView';
@@ -39,6 +40,9 @@ export default function App() {
       setIsFirstRun(firstRun);
 
       if (!firstRun) {
+        console.log('[OTM DOOR] Ouverture du Dashboard');
+        // Assure que le catalogue (modèles, couleurs, cadres, matières, quincaillerie) est peuplé en IndexedDB
+        await ensureCatalogueSeeded();
         const [c, s] = await Promise.all([getCompanyInfo(), getSettings()]);
         if (c) setCompanyInfo(c);
         if (s) {
@@ -84,6 +88,34 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [appSettings]);
+
+  // Inactivity auto-lock timer
+  useEffect(() => {
+    const autoLockMinutes = appSettings?.autoLockMinutes ?? 15;
+    if (!appSettings?.passwordHash || isLocked || isFirstRun || autoLockMinutes <= 0) {
+      return;
+    }
+
+    const timeoutMs = autoLockMinutes * 60 * 1000;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const resetTimer = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        handleLock();
+      }, timeoutMs);
+    };
+
+    resetTimer();
+
+    const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
+    activityEvents.forEach((evt) => window.addEventListener(evt, resetTimer, { passive: true }));
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      activityEvents.forEach((evt) => window.removeEventListener(evt, resetTimer));
+    };
+  }, [appSettings?.passwordHash, appSettings?.autoLockMinutes, isLocked, isFirstRun]);
 
   const handleNavigate = (section: NavigationSection, sub?: string) => {
     setActiveSection(section);
@@ -192,6 +224,10 @@ export default function App() {
 
             {activeSection === 'CLIENTS' && (
               <ClientsView />
+            )}
+
+            {activeSection === 'WORKERS' && (
+              <WorkersView />
             )}
 
             {activeSection === 'PAYMENTS' && (

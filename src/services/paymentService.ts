@@ -26,6 +26,12 @@ export async function createPayment(input: CreatePaymentInput): Promise<Payment>
     throw new Error('Le montant du versement doit être supérieur à zéro');
   }
 
+  if (input.amount > order.remainingAmount) {
+    throw new Error(
+      `Le montant du versement (${input.amount.toLocaleString('fr-DZ')} DA) ne peut pas être supérieur au solde restant de la commande (${order.remainingAmount.toLocaleString('fr-DZ')} DA).`
+    );
+  }
+
   const receiptNumber = await generateNextReceiptNumber();
   const now = new Date();
   const dateStr = input.date || now.toISOString().split('T')[0];

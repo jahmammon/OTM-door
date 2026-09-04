@@ -85,6 +85,11 @@ export const ProductionView: React.FC<ProductionViewProps> = ({ subSection = 'TO
 
   // Execute Production & Consume BOM
   const handleValidateProduction = async (prodOrder: ProductionOrder) => {
+    if (prodOrder.status === 'ANNULÉE') {
+      alert(`Impossible de fabriquer : L'ordre de production ${prodOrder.productionNumber} est annulé.`);
+      return;
+    }
+
     if (!window.confirm(`Confirmer le lancement et l'achèvement de la production pour l'ordre ${prodOrder.productionNumber} (${prodOrder.quantity} porte(s)) ? Cette action consommera les composants de la BOM et créditera le stock de portes finies.`)) {
       return;
     }
@@ -100,6 +105,12 @@ export const ProductionView: React.FC<ProductionViewProps> = ({ subSection = 'TO
 
   // Change status to EN PRODUCTION
   const handleSetInProgress = async (prodId: string) => {
+    const p = await db.productionOrders.get(prodId);
+    if (p?.status === 'ANNULÉE') {
+      alert(`Impossible de démarrer l'usinage : L'ordre de production ${p.productionNumber} est annulé.`);
+      return;
+    }
+
     await db.productionOrders.update(prodId, {
       status: 'EN PRODUCTION',
       updatedAt: new Date().toISOString()
@@ -267,7 +278,9 @@ export const ProductionView: React.FC<ProductionViewProps> = ({ subSection = 'TO
                         </p>
                       </div>
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        order.status === 'EN ATTENTE DE MATIÈRES'
+                        order.status === 'ANNULÉE'
+                          ? 'bg-slate-800 text-rose-400 border border-rose-500/30 line-through'
+                          : order.status === 'EN ATTENTE DE MATIÈRES'
                           ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
                           : order.status === 'À PRODUIRE'
                           ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
@@ -358,7 +371,7 @@ export const ProductionView: React.FC<ProductionViewProps> = ({ subSection = 'TO
                           </button>
                         )}
 
-                        {order.status !== 'TERMINÉE' && (
+                        {order.status !== 'TERMINÉE' && order.status !== 'ANNULÉE' && (
                           <button
                             onClick={() => handleValidateProduction(order)}
                             className="flex items-center gap-1 px-3.5 py-1.5 rounded-lg bg-emerald-500 text-slate-950 font-bold hover:bg-emerald-400 transition cursor-pointer shadow-sm"

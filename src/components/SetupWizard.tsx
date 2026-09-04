@@ -11,7 +11,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { initializeCleanSetup } from '../services/demoDataService';
-import type { CompanyInfo } from '../types';
+import type { CompanyInfo, AppSettings } from '../types';
 
 interface SetupWizardProps {
   onComplete: () => void;
@@ -66,24 +66,49 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
   };
 
   const handleFinalize = async () => {
+    // Validate password if provided
+    if (password && password !== passwordConfirm) {
+      setCurrentStep(3);
+      setPasswordError('Les mots de passe ne correspondent pas.');
+      return;
+    }
+
     setLoading(true);
     try {
+      console.log('[OTM DOOR] Finalisation du setup...');
+
+      // Mandatory fields have safe fallbacks; optional fields remain empty if not filled
       const companyData: Partial<CompanyInfo> = {
-        name: companyName,
-        address,
-        wilaya,
-        commune,
-        phone1,
-        phone2,
-        email,
-        legalInfo,
-        logo: logoUrl
+        name: companyName.trim() || 'OTM DOOR',
+        address: address.trim() || 'Zone Industrielle Oued Smar, Lot N° 45',
+        wilaya: wilaya.trim() || 'Alger',
+        commune: commune.trim() || 'Oued Smar',
+        phone1: phone1.trim() || '0550 12 34 56',
+        phone2: phone2.trim(),
+        email: email.trim(),
+        legalInfo: legalInfo.trim(),
+        logo: logoUrl || '/otm-door-logo.png'
       };
 
-      await initializeCleanSetup(companyData, password);
+      const settingsData: Partial<AppSettings> = {
+        orderPrefix: orderPrefix.trim() || 'OTM-2026-',
+        receiptPrefix: receiptPrefix.trim() || 'REC-2026-',
+        productionPrefix: prodPrefix.trim() || 'PROD-2026-'
+      };
+
+      await initializeCleanSetup(companyData, password, settingsData);
+      console.log('[OTM DOOR] Setup sauvegardé');
+      console.log('[OTM DOOR] setupCompleted = true');
+
+      // Ensure current session is unlocked so admin enters directly without an immediate lock prompt
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('otm_unlocked', 'true');
+      }
+
       onComplete();
     } catch (err: any) {
-      alert(`Erreur lors de l'initialisation: ${err.message}`);
+      console.error('[OTM DOOR] Échec de finalisation du setup:', err);
+      alert(`Erreur lors de l'initialisation: ${err?.message || err}`);
     } finally {
       setLoading(false);
     }
@@ -424,7 +449,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({ onComplete }) => {
               disabled={loading}
               className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-emerald-500 text-xs font-bold text-slate-950 hover:bg-emerald-400 cursor-pointer shadow-lg shadow-emerald-500/10"
             >
-              {loading ? 'Configuration en cours...' : 'Ouvrir le tableau de bord'} <CheckCircle2 className="w-4 h-4" />
+              {loading ? 'Configuration en cours...' : 'Terminer & Ouvrir le tableau de bord'} <CheckCircle2 className="w-4 h-4" />
             </button>
           )}
         </div>

@@ -213,6 +213,13 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
       const discount = Math.max(0, Number(input.discount || 0));
       const totalAmount = Math.max(0, subtotal - discount);
 
+      // Validate deposit against total amount: NEVER silently reduce with Math.min()
+      if (input.initialDeposit && input.initialDeposit > totalAmount) {
+        throw new Error(
+          `L'acompte saisi (${input.initialDeposit} DA) ne peut pas dépasser le montant total de la commande (${totalAmount} DA).`
+        );
+      }
+
       // Initial status: if production needed -> À PRODUIRE, else PRÊTE
       const initialStatus: OrderStatus = hasProductionNeeded ? 'À PRODUIRE' : 'PRÊTE';
 
@@ -240,7 +247,7 @@ export async function createOrder(input: CreateOrderInput): Promise<Order> {
       await db.orderItems.bulkAdd(preparedItems);
 
       if (input.initialDeposit && input.initialDeposit > 0) {
-        const depositAmount = Math.min(input.initialDeposit, totalAmount);
+        const depositAmount = input.initialDeposit;
         const receiptNum = await generateSafeSequence('RECEIPT');
         const paymentId = 'pay_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
 

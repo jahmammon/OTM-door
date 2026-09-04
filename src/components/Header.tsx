@@ -38,6 +38,10 @@ const SECTION_TITLES: Record<MainNavSection, { title: string; subtitle: string }
     title: 'Répertoire Clients',
     subtitle: 'Gestion des fiches clients, coordonnées wilaya, commandes passées et solde financier'
   },
+  WORKERS: {
+    title: 'Gestion des Ouvriers',
+    subtitle: 'Suivi du personnel d’atelier, salaires de base et gestion des avances sur salaire'
+  },
   PRICING: {
     title: 'Matrice de Tarification',
     subtitle: 'Gestion manuelle des prix exacts par modèle, matière et dimensions sans formules opaques'

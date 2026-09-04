@@ -1,11 +1,11 @@
-import { db } from '../db';
+import { db, OtmDoorDatabase, getActiveDatabase, setActiveDatabase } from '../db';
 import { createOrder } from '../services/orderService';
 import { createPayment } from '../services/paymentService';
 import { validateAndExecuteProduction, checkProductionMaterials } from '../services/productionService';
 import { savePriceEntry, lookupPrice } from '../services/pricingService';
 import { exportDatabaseBackup, restoreDatabaseBackup } from '../services/backupService';
 import { findOrCreateFinishedDoorStock, reserveFinishedDoorStock } from '../services/stockService';
-import { initializeCleanSetup, loadDemoData } from '../services/demoDataService';
+import { initializeCleanSetup, loadDemoData, isSetupCompleted, checkIfFirstRun } from '../services/demoDataService';
 
 export interface ScenarioTestResult {
   id: string;
@@ -515,52 +515,149 @@ const testDefinitions: TestCase[] = [
 
       log('Validation réussie: Les modèles sans BOM sont immédiatement bloqués avec alerte explicite.');
     }
+  },
+
+  // 10. Setup Wizard & Persistence test
+  {
+    id: 'TEST_SETUP_WIZARD_PERSISTENCE',
+    name: '10. Assistant Premier Lancement & Persistance setupCompleted',
+    description: 'Vérifie que la finalisation du wizard enregistre setupCompleted = true et ouvre immédiatement le Dashboard.',
+    run: async (log) => {
+      // 1. Verify completed state
+      const status = await isSetupCompleted();
+      log(`Vérification statut setup: completed = ${status.completed}`);
+      if (!status.completed) {
+        throw new Error(`Le setup n'est pas marqué comme complété: ${status.reason}`);
+      }
+
+      // 2. Verify checkIfFirstRun returns false
+      const firstRun = await checkIfFirstRun();
+      log(`Vérification checkIfFirstRun: ${firstRun} (attendu: false pour afficher le Dashboard)`);
+      if (firstRun) {
+        throw new Error('checkIfFirstRun() a renvoyé true alors que le setup est complété !');
+      }
+
+      // 3. Verify settings table
+      const settings = (await db.settings.toArray())[0];
+      if (!settings?.setupCompleted || !settings?.isInitialized) {
+        throw new Error('settings.setupCompleted ou settings.isInitialized manquant dans IndexedDB');
+      }
+      log(`IndexedDB vérifié: setupCompleted = ${settings.setupCompleted}, isInitialized = ${settings.isInitialized}`);
+
+      // 4. Verify company info
+      const company = (await db.company.toArray())[0];
+      if (!company || !company.name) {
+        throw new Error('Informations entreprise manquantes dans IndexedDB');
+      }
+      log(`Entreprise vérifiée: "${company.name}" (Wilaya: ${company.wilaya}, Tél: ${company.phone1})`);
+
+      log('Validation réussie: L’état du premier lancement est persisté de manière robuste et immuable.');
+    }
   }
 ];
+
+async function withIsolatedTestDb<T>(action: () => Promise<T>): Promise<T> {
+  const prodDb = getActiveDatabase();
+  const testDbName = 'OtmDoorTestDB';
+
+  // Clean up any lingering previous test DB
+  const tempDb = new OtmDoorDatabase(testDbName);
+  try {
+    await tempDb.delete();
+  } catch {}
+
+  const testDb = new OtmDoorDatabase(testDbName);
+  await testDb.open();
+
+  try {
+    setActiveDatabase(testDb);
+    // Seed fresh temporary database with setup and demo data
+    await initializeCleanSetup();
+    await loadDemoData();
+    return await action();
+  } finally {
+    // Always restore the production database reference immediately
+    setActiveDatabase(prodDb);
+    try {
+      testDb.close();
+      await testDb.delete();
+    } catch (cleanErr) {
+      console.warn('Erreur lors du nettoyage de la base temporaire de test:', cleanErr);
+    }
+  }
+}
 
 export async function runScenarioTest(testId: string): Promise<ScenarioTestResult> {
   const tc = testDefinitions.find((t) => t.id === testId);
   if (!tc) throw new Error(`Test inconnu: ${testId}`);
 
-  const logs: string[] = [];
-  const log = (msg: string) => logs.push(msg);
-  const start = performance.now();
+  return await withIsolatedTestDb(async () => {
+    const logs: string[] = [];
+    const log = (msg: string) => logs.push(msg);
+    const start = performance.now();
 
-  try {
-    await tc.run(log);
-    const durationMs = Math.round(performance.now() - start);
-    return {
-      id: tc.id,
-      name: tc.name,
-      description: tc.description,
-      passed: true,
-      details: logs,
-      durationMs
-    };
-  } catch (err: any) {
-    const durationMs = Math.round(performance.now() - start);
-    logs.push(`ÉCHEC: ${err.message}`);
-    return {
-      id: tc.id,
-      name: tc.name,
-      description: tc.description,
-      passed: false,
-      details: logs,
-      error: err.message,
-      durationMs
-    };
-  }
+    try {
+      await tc.run(log);
+      const durationMs = Math.round(performance.now() - start);
+      return {
+        id: tc.id,
+        name: tc.name,
+        description: tc.description,
+        passed: true,
+        details: logs,
+        durationMs
+      };
+    } catch (err: any) {
+      const durationMs = Math.round(performance.now() - start);
+      logs.push(`ÉCHEC: ${err.message}`);
+      return {
+        id: tc.id,
+        name: tc.name,
+        description: tc.description,
+        passed: false,
+        details: logs,
+        error: err.message,
+        durationMs
+      };
+    }
+  });
 }
 
 export async function runAutomatedScenarioTests(): Promise<ScenarioTestResult[]> {
-  await initializeCleanSetup();
-  await loadDemoData();
+  return await withIsolatedTestDb(async () => {
+    const results: ScenarioTestResult[] = [];
+    for (const tc of testDefinitions) {
+      const logs: string[] = [];
+      const log = (msg: string) => logs.push(msg);
+      const start = performance.now();
 
-  const results: ScenarioTestResult[] = [];
-  for (const tc of testDefinitions) {
-    results.push(await runScenarioTest(tc.id));
-  }
-  return results;
+      try {
+        await tc.run(log);
+        const durationMs = Math.round(performance.now() - start);
+        results.push({
+          id: tc.id,
+          name: tc.name,
+          description: tc.description,
+          passed: true,
+          details: logs,
+          durationMs
+        });
+      } catch (err: any) {
+        const durationMs = Math.round(performance.now() - start);
+        logs.push(`ÉCHEC: ${err.message}`);
+        results.push({
+          id: tc.id,
+          name: tc.name,
+          description: tc.description,
+          passed: false,
+          details: logs,
+          error: err.message,
+          durationMs
+        });
+      }
+    }
+    return results;
+  });
 }
 
 export function getAllTestDefinitions(): Array<{ id: string; name: string; description: string }> {

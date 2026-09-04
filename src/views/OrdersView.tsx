@@ -14,9 +14,11 @@ import {
   X,
   AlertCircle,
   Printer,
-  ChevronRight
+  ChevronRight,
+  Truck
 } from 'lucide-react';
 import { db, recordAudit } from '../db';
+import { ensureCatalogueSeeded } from '../services/demoDataService';
 import type {
   Order,
   OrderItem,
@@ -32,7 +34,7 @@ import type {
 import { createOrder, cancelOrder, updateOrderStatus, recalculateOrderTotals } from '../services/orderService';
 import { lookupPrice } from '../services/pricingService';
 import { createPayment } from '../services/paymentService';
-import { generateOrderPdf, generateQuotePdf, generatePaymentReceiptPdf, formatCurrency, formatDateFr } from '../services/documentService';
+import { generateOrderPdf, generateQuotePdf, generateDeliveryNotePdf, generatePaymentReceiptPdf, formatCurrency, formatDateFr } from '../services/documentService';
 
 interface OrdersViewProps {
   subSection?: string;
@@ -110,6 +112,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({ subSection = 'ALL' }) =>
   const loadData = async () => {
     setLoading(true);
     try {
+      await ensureCatalogueSeeded();
       const [allOrders, allClients, allModels, allColours, allFrames, allMats] = await Promise.all([
         db.orders.orderBy('createdAt').reverse().toArray(),
         db.clients.toArray(),
@@ -160,6 +163,21 @@ export const OrdersView: React.FC<OrdersViewProps> = ({ subSection = 'ALL' }) =>
   const handleItemPropertyChange = async (index: number, field: keyof NewOrderDraftItem, value: any) => {
     const updated = [...draftItems];
     updated[index] = { ...updated[index], [field]: value };
+
+    // When model changes, apply model default dimensions, frame, and compatible material
+    if (field === 'modelId') {
+      const selectedModel = doorModels.find((m) => m.id === value);
+      if (selectedModel) {
+        if (selectedModel.standardWidth) updated[index].width = selectedModel.standardWidth;
+        if (selectedModel.standardHeight) updated[index].height = selectedModel.standardHeight;
+        if (selectedModel.defaultFrameId) updated[index].frameId = selectedModel.defaultFrameId;
+        if (selectedModel.compatibleMaterials && selectedModel.compatibleMaterials.length > 0) {
+          if (!selectedModel.compatibleMaterials.includes(updated[index].materialName)) {
+            updated[index].materialName = selectedModel.compatibleMaterials[0];
+          }
+        }
+      }
+    }
 
     // If model, material, width, or height changed, trigger automatic price lookup
     if (['modelId', 'materialName', 'width', 'height'].includes(field)) {
@@ -251,6 +269,11 @@ export const OrdersView: React.FC<OrdersViewProps> = ({ subSection = 'ALL' }) =>
         setCreationError(`Veuillez renseigner un prix unitaire supérieur à zéro pour la ligne ${i + 1}`);
         return;
       }
+    }
+
+    if (initialDeposit > totalAmount) {
+      setCreationError(`L'acompte (${initialDeposit} DA) ne peut pas être supérieur au total de la commande (${totalAmount} DA).`);
+      return;
     }
 
     try {
@@ -907,6 +930,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({ subSection = 'ALL' }) =>
               >
                 <FileText className="w-3.5 h-3.5 text-sky-400" />
                 <span>Imprimer Devis Estimatif (PDF)</span>
+              </button>
+
+              <button
+                onClick={() => generateDeliveryNotePdf(selectedOrder, selectedOrderItems)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-bold text-slate-200 hover:bg-slate-700 hover:text-white cursor-pointer shadow-sm"
+              >
+                <Truck className="w-3.5 h-3.5 text-amber-400" />
+                <span>Imprimer Bon de Livraison (PDF)</span>
               </button>
 
               <button

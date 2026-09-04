@@ -61,6 +61,7 @@ export interface AppSettings {
   id?: string;
   currency: string;
   isInitialized: boolean;
+  setupCompleted?: boolean;
   passwordHash?: string;
   passwordSalt?: string;
   autoLockMinutes: number;
@@ -80,6 +81,11 @@ export interface DoorModel {
   compatibleMaterials: string[]; // ['WPC', 'MDF', 'PVC']
   cncImage?: string; // Data URL or asset path
   description?: string;
+  standardWidth?: number; // cm, e.g. 80, 90
+  standardHeight?: number; // cm, e.g. 210, 220
+  defaultDimensions?: string; // e.g. "80 x 210 cm"
+  compatibleColours?: string[]; // IDs or names of compatible colours
+  defaultFrameId?: string; // ID of default frame (e.g. 'frm_f1')
   active: boolean;
   createdAt: string;
   updatedAt: string;
@@ -189,6 +195,34 @@ export interface Client {
   notes?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface Worker {
+  id: string;
+  name: string;
+  fonction: string; // job title
+  salary: number; // monthly base salary in DA
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkerAdvance {
+  id: string;
+  workerId: string;
+  date: string;
+  amount: number;
+  note?: string;
+  createdAt: string;
+}
+
+export interface WorkerBonus {
+  id: string;
+  workerId: string;
+  date: string;
+  amount: number;
+  motif?: string;
+  createdAt: string;
 }
 
 export interface OrderItem {
@@ -361,6 +395,9 @@ export interface BackupPayload {
     stockItems: StockItem[];
     stockMovements: StockMovement[];
     auditLogs: AuditLog[];
+    workers?: Worker[];
+    workerAdvances?: WorkerAdvance[];
+    workerBonuses?: WorkerBonus[];
   };
 }
 
@@ -372,6 +409,7 @@ export type NavigationSection =
   | 'CATALOG'
   | 'PRICING'
   | 'CLIENTS'
+  | 'WORKERS'
   | 'PAYMENTS'
   | 'REPORTS'
   | 'SETTINGS'
